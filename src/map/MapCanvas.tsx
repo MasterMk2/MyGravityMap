@@ -159,6 +159,15 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
 
       const map = new MapLibreMap(mapOptions)
       mapRef.current = map
+      // 開発時のみ: コンソールから地図の状態を確認できるようにする
+      if (import.meta.env.DEV) {
+        ;(window as unknown as { __map: MapLibreMap }).__map = map
+        map.on('error', (e) => {
+          ;((window as unknown as { __mapErrs?: string[] }).__mapErrs ??= []).push(
+            String((e as unknown as { error?: Error }).error?.message ?? e),
+          )
+        })
+      }
       appliedBasemapRef.current = startBasemap
 
       map.addControl(new NavigationControl(), 'top-right')
