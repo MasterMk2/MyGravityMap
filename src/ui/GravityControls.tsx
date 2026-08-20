@@ -104,9 +104,9 @@ export function GravityControls({ settings, onChange, points, visitAvailable }: 
             </span>
             <input
               type="range"
-              min={0.2}
-              max={2}
-              step={0.1}
+              min={0.5}
+              max={8}
+              step={0.5}
               value={settings.intensity}
               onChange={(e) => onChange({ intensity: Number(e.target.value) })}
               aria-label="重力マップの強さ"

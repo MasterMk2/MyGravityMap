@@ -9,7 +9,7 @@ export interface GravitySettings {
   source: GravitySource
   /** 六角柱の 1 マスの半径（メートル） */
   radiusMeters: number
-  /** 見た目の強さ 0..2 */
+  /** 見た目の強さ 0.5..8。色は 重み × これ ÷ 最大値 で引かれる */
   intensity: number
   opacity: number
 }
@@ -18,7 +18,9 @@ export const DEFAULT_GRAVITY: GravitySettings = {
   mode: 'off',
   source: 'track',
   radiusMeters: 250,
-  intensity: 1,
+  // ヒートマップの色は「重み ÷ 最大値」の線形なので、1 だと弱い側が
+  // 色の最下段に張り付く。3 なら最大値の 1/3 で白まで届く。
+  intensity: 3,
   opacity: 0.85,
 }
 
@@ -27,7 +29,7 @@ export interface GravityLayerInput {
   points: WeightedPoints
   /** 六角柱の 1 マスの半径（メートル） */
   radiusMeters: number
-  /** 見た目の強さ 0..2 */
+  /** 見た目の強さ 0.5..8。色は 重み × これ ÷ 最大値 で引かれる */
   intensity: number
   /** 軌跡の下に敷くので控えめにできるようにする */
   opacity: number
@@ -67,19 +69,26 @@ export function heatCellMeters(radiusMeters: number, zoom: number, latitude: num
   return Math.max(radiusMeters, roundToNice(mpp * 2))
 }
 
-/**
+/*
  * ヒートマップの色。低い側ほど透明にしていく。
- *
  * 低い側に濃い色を置くと、弱い場所が「暗い塊」として地図の上に乗り、
- * 輪郭が縁取りのように見えて汚くなる（実際そうなっていた）。
- * 不透明度で抜いていけば、弱い場所は地図に溶けて消える。
+ * 輪郭が縁取りのように見えて汚くなる。不透明度で抜けば地図に溶けて消える。
+ *
+ * 段の並びは「色の割り当て」そのものになる。
+ *
+ * シェーダは color = colorTexture[clamp(重み × intensity ÷ 最大値, 0, 1)] という
+ * 線形の引き方をするので、段を均等に置くと弱い側が最下段に張り付く。
+ * 実データは自宅が突出しているぶん、大半の場所が下から 1〜2 割の範囲に入る。
+ * そこで前半に段を厚く配り、序盤で一気に色がつくようにしてある。
  */
 const HEAT_COLORS: Array<[number, number, number, number]> = [
   [21, 101, 138, 0],
-  [24, 130, 155, 38],
-  [30, 170, 158, 100],
-  [95, 210, 140, 160],
-  [200, 236, 132, 212],
+  [24, 138, 158, 70],
+  [28, 170, 158, 130],
+  [40, 196, 150, 175],
+  [86, 214, 140, 205],
+  [150, 228, 134, 226],
+  [214, 240, 132, 242],
   [255, 255, 245, 255],
 ]
 
@@ -249,7 +258,9 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
          * 柱の太さ（radius）に対して見合う高さになるよう、半径基準で決める。
          * 250m 粒度なら最大 2.5km、1km 粒度なら最大 10km。
          */
-        elevationScale: (radiusMeters * 10 * intensity) / 1000,
+        // 強さスライダーはヒートマップ用に広い範囲を持たせてあるので、
+        // 柱の高さには効きを弱めて掛ける（intensity 3 で従来の 1 倍相当）。
+        elevationScale: (radiusMeters * 10 * (0.4 + intensity * 0.2)) / 1000,
         // 対数にした時点で外れ値は十分潰れているので、頭打ちはしない。
         // ここで切ると自宅と職場の差まで消えてしまう。
         elevationLowerPercentile: 0,
