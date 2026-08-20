@@ -1,15 +1,16 @@
 <!doctype html>
 <!--
-  切り分け用の最小ページ（開発時のみ）。
-  MapLibre だけを素で動かす。React も deck.gl も使わない。
-  ここで地図が出るなら deck.gl との組み合わせが原因、
-  出ないなら環境側（WebGL / ネットワーク / 合成）の問題。
+  切り分け用の診断ページ（開発時のみ）。React も deck.gl も使わない。
+
+  ベクタタイルは MapLibre の Worker が解析する。ラスタタイルは
+  メインスレッドが画像として読むだけで Worker を通らない。
+  「ラスタは出るがベクタは出ない」なら Worker が原因だと確定できる。
 -->
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>maptest — MapLibre 単体</title>
+    <title>maptest — MapLibre 診断</title>
     <style>
       html,
       body {
@@ -23,67 +24,193 @@
         position: absolute;
         inset: 0;
       }
-      #log {
+      #hud {
         position: absolute;
         z-index: 10;
         top: 8px;
         left: 8px;
-        max-width: 90vw;
-        padding: 8px 10px;
-        background: rgba(10, 12, 16, 0.9);
-        border: 1px solid rgba(255, 255, 255, 0.15);
+        width: min(620px, 92vw);
+        padding: 10px 12px;
+        background: rgba(10, 12, 16, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.18);
         border-radius: 8px;
         font-size: 13px;
-        line-height: 1.7;
+        line-height: 1.65;
+      }
+      #log {
+        margin: 8px 0 0;
+        max-height: 46vh;
+        overflow: auto;
         white-space: pre-wrap;
+        font-family: ui-monospace, Consolas, monospace;
+        font-size: 12px;
+      }
+      button {
+        font: inherit;
+        color: #e8eaf0;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 6px;
+        padding: 5px 10px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: rgba(255, 255, 255, 0.16);
       }
     </style>
   </head>
   <body>
     <div id="map"></div>
-    <pre id="log">起動中…</pre>
+    <div id="hud">
+      <div>
+        <button id="btn-vector">① ベクタ（CARTO）</button>
+        <button id="btn-raster">② ラスタ（CARTO）</button>
+        <button id="btn-osm">③ ラスタ（OSM）</button>
+        <button id="btn-worker">④ Worker 単体テスト</button>
+      </div>
+      <pre id="log">起動中…</pre>
+    </div>
+
     <script type="module">
       import { Map as MapLibreMap } from 'maplibre-gl'
       import 'maplibre-gl/dist/maplibre-gl.css'
 
-      const log = document.getElementById('log')
+      const logEl = document.getElementById('log')
       const lines = []
       const say = (s) => {
         lines.push(s)
-        log.textContent = lines.join('\n')
+        logEl.textContent = lines.join('\n')
+        logEl.scrollTop = logEl.scrollHeight
       }
 
-      // WebGL が使えるか
+      // --- 環境 ---
       const probe = document.createElement('canvas')
       const gl = probe.getContext('webgl2') || probe.getContext('webgl')
-      say(`WebGL: ${gl ? gl.getParameter(gl.VERSION) : '使えません（これが原因）'}`)
-      if (gl) {
-        const dbg = gl.getExtension('WEBGL_debug_renderer_info')
-        if (dbg) say(`GPU: ${gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)}`)
-      }
-
-      // requestAnimationFrame が動くか
+      say(`WebGL: ${gl ? gl.getParameter(gl.VERSION) : '使えません'}`)
       let frames = 0
       const t0 = performance.now()
       const tick = () => {
         frames++
         if (performance.now() - t0 < 800) requestAnimationFrame(tick)
-        else say(`requestAnimationFrame: 800ms で ${frames} フレーム${frames === 0 ? '（描画されない環境です）' : ''}`)
+        else say(`rAF: 800ms で ${frames} フレーム`)
       }
       requestAnimationFrame(tick)
 
-      const map = new MapLibreMap({
-        container: 'map',
-        style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-        center: [137.5, 37.0],
-        zoom: 4.5,
+      // --- スタイル定義 ---
+      const VECTOR = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
+      const rasterStyle = (name, tiles, attribution) => ({
+        version: 8,
+        sources: { [name]: { type: 'raster', tiles, tileSize: 256, attribution } },
+        layers: [
+          { id: 'bg', type: 'background', paint: { 'background-color': '#101318' } },
+          { id: name, type: 'raster', source: name },
+        ],
       })
-      window.__testmap = map
+      const RASTER_CARTO = rasterStyle(
+        'carto-raster',
+        [
+          'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+          'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+          'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+        ],
+        '© OpenStreetMap contributors © CARTO',
+      )
+      const RASTER_OSM = rasterStyle(
+        'osm',
+        ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+        '© OpenStreetMap contributors',
+      )
 
-      map.on('load', () => say('map load: OK（ここまで来れば地図は出ているはず）'))
-      map.on('styledata', () => say(`styledata: isStyleLoaded=${map.isStyleLoaded()}`))
-      map.on('error', (e) => say(`map error: ${e.error?.message ?? e}`))
-      setTimeout(() => say(`5 秒後: isStyleLoaded=${map.isStyleLoaded()} loaded=${map.loaded()}`), 5000)
+      let map = null
+      let counters = null
+
+      function start(label, style) {
+        if (map) {
+          map.remove()
+          map = null
+        }
+        lines.length = 0
+        say(`--- ${label} ---`)
+        counters = { dataloading: 0, sourcedata: 0, tileLoaded: 0, error: 0, idle: 0 }
+
+        map = new MapLibreMap({
+          container: 'map',
+          style,
+          center: [137.5, 37.0],
+          zoom: 4.5,
+        })
+        window.__testmap = map
+
+        map.on('dataloading', () => counters.dataloading++)
+        map.on('sourcedata', (e) => {
+          counters.sourcedata++
+          if (e.tile) counters.tileLoaded++
+        })
+        map.on('error', (e) => {
+          counters.error++
+          if (counters.error <= 3) say(`error: ${e.error?.message ?? e}`)
+        })
+        map.on('idle', () => counters.idle++)
+        map.on('load', () => say('map load: OK ★地図が出ているはず'))
+
+        for (const sec of [2, 6]) {
+          setTimeout(() => {
+            const res = performance
+              .getEntriesByType('resource')
+              .filter((r) => /cartocdn|openstreetmap/.test(r.name))
+            say(
+              `${sec}秒: styleLoaded=${map.isStyleLoaded()} loaded=${map.loaded()} ` +
+                `| dataloading=${counters.dataloading} sourcedata=${counters.sourcedata} ` +
+                `tile=${counters.tileLoaded} error=${counters.error} idle=${counters.idle}` +
+                `\n     メインスレッドの外部リクエスト: ${res.length} 件` +
+                (res.length ? `（例: ${res[res.length - 1].name.slice(0, 78)}）` : '（0 件）'),
+            )
+          }, sec * 1000)
+        }
+      }
+
+      document.getElementById('btn-vector').onclick = () => start('① ベクタ CARTO', VECTOR)
+      document.getElementById('btn-raster').onclick = () => start('② ラスタ CARTO', RASTER_CARTO)
+      document.getElementById('btn-osm').onclick = () => start('③ ラスタ OSM', RASTER_OSM)
+
+      // --- ④ Worker が動くかを MapLibre と無関係に確かめる ---
+      document.getElementById('btn-worker').onclick = async () => {
+        lines.length = 0
+        say('--- ④ Worker 単体テスト ---')
+        try {
+          const src = 'self.onmessage = (e) => self.postMessage("pong:" + e.data)'
+          const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }))
+          const w = new Worker(url, { type: 'module' })
+          const res = await new Promise((resolve) => {
+            const timer = setTimeout(() => resolve('返事なし（Worker が動いていません）'), 3000)
+            w.onmessage = (e) => {
+              clearTimeout(timer)
+              resolve(e.data)
+            }
+            w.onerror = (e) => {
+              clearTimeout(timer)
+              resolve('Worker エラー: ' + e.message)
+            }
+            w.postMessage('ping')
+          })
+          say(`module Worker: ${res}`)
+          w.terminate()
+        } catch (e) {
+          say(`module Worker: 生成できません — ${e.message}`)
+        }
+        // MapLibre 自身の Worker ファイルが取得できるか
+        try {
+          const r = await fetch('/node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs', {
+            method: 'HEAD',
+          })
+          say(`maplibre worker ファイル: HTTP ${r.status}`)
+        } catch (e) {
+          say(`maplibre worker ファイル: 取得失敗 — ${e.message}`)
+        }
+      }
+
+      // 既定でベクタから始める
+      start('① ベクタ CARTO', VECTOR)
     </script>
   </body>
 </html>

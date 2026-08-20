@@ -13,8 +13,9 @@ interface Props {
 const nf = new Intl.NumberFormat('ja-JP')
 
 const BASEMAP_OPTIONS: Array<{ id: BasemapId; label: string; hint: string }> = [
-  { id: 'dark', label: 'ダーク', hint: 'CARTO dark matter' },
-  { id: 'light', label: 'ライト', hint: 'CARTO positron' },
+  { id: 'dark', label: 'ダーク', hint: 'CARTO dark matter（ベクタ）' },
+  { id: 'darkRaster', label: 'ダーク(ラスタ)', hint: 'CARTO dark（ラスタ。Worker を使わない）' },
+  { id: 'light', label: 'ライト', hint: 'CARTO positron（ベクタ）' },
   { id: 'none', label: 'なし', hint: '地図タイルを取得しない（通信ゼロ）' },
 ]
 
