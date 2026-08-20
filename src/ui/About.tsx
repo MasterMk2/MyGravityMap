@@ -38,27 +38,52 @@ export function HowToExport() {
       <summary>タイムラインの取り出し方</summary>
       <div className="howto__body">
         <p>
-          タイムラインは端末内に保存されているため、Google マップアプリから書き出します。
-          表記はアプリのバージョンによって少し違います。
+          タイムラインは端末内に保存されているので、端末から書き出します。
+          <b>Android と iPhone で場所が違います。</b>
         </p>
+
+        <p className="howto__platform">Android（端末の「設定」アプリから）</p>
         <ol>
           <li>
-            Google マップアプリを開き、右上の<b>プロフィール写真</b>をタップ
+            端末の<b>設定</b>アプリを開く（Google マップではありません）
           </li>
           <li>
-            <b>タイムライン</b>を開く
+            <b>位置情報</b> → <b>位置情報サービス</b> → <b>タイムライン</b>
           </li>
           <li>
-            右上の <b>⋮</b>（iPhone は <b>…</b>）から<b>設定</b>
+            <b>タイムライン データをエクスポート</b>をタップ
           </li>
-          <li>
-            <b>タイムラインのエクスポート</b>を選び、保存
-          </li>
-          <li>保存した JSON をこのページに読み込ませる</li>
         </ol>
+
+        <p className="howto__platform">iPhone / iPad（Google マップアプリから）</p>
+        <ol>
+          <li>
+            Google マップを開き、右上の<b>プロフィール写真</b> → <b>設定</b>
+          </li>
+          <li>
+            <b>個人的なコンテンツ</b>を開く
+          </li>
+          <li>
+            「位置情報の設定」の中の<b>タイムライン データをエクスポート</b>
+          </li>
+          <li>
+            共有シートで<b>ファイルに保存</b>
+          </li>
+        </ol>
+
         <p className="howto__note">
-          ファイル名は <code>location-history.json</code> または{' '}
-          <code>タイムライン.json</code> で、数十 MB になることがあります。
+          書き出されるファイルは <code>location-history.json</code>（JSON 形式）で、
+          記録が長いと数十 MB になります。保存したらこのページに読み込ませてください。
+          <br />
+          手順は{' '}
+          <a
+            href="https://support.google.com/maps/answer/6258979?hl=ja"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Google マップ ヘルプ
+          </a>
+          （2026 年 8 月時点）に基づいています。表記はバージョンによって変わることがあります。
           <br />
           Google データエクスポート（Takeout）の古い形式（<code>Records.json</code> や
           「セマンティック ロケーション履歴」フォルダ）にはまだ対応していません。
