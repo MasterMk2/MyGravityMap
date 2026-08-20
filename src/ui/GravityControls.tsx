@@ -98,6 +98,21 @@ export function GravityControls({ settings, onChange, points, visitAvailable }: 
             </div>
           </div>
 
+          <label className="gravity__slider" title="小さいほど、たまにしか行かない場所も持ち上がる">
+            <span>
+              コントラスト <em>{settings.contrast.toFixed(1)}</em>
+            </span>
+            <input
+              type="range"
+              min={0.3}
+              max={1.5}
+              step={0.1}
+              value={settings.contrast}
+              onChange={(e) => onChange({ contrast: Number(e.target.value) })}
+              aria-label="コントラスト。小さいほど弱い場所が持ち上がる"
+            />
+          </label>
+
           <label className="gravity__slider">
             <span>
               強さ <em>{settings.intensity.toFixed(1)}</em>

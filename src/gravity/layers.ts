@@ -11,6 +11,8 @@ export interface GravitySettings {
   radiusMeters: number
   /** 見た目の強さ 0.5..8。色は 重み × これ ÷ 最大値 で引かれる */
   intensity: number
+  /** 対数に掛けるガンマ 0.3..1.5。小さいほど弱い場所が持ち上がる */
+  contrast: number
   opacity: number
 }
 
@@ -21,6 +23,7 @@ export const DEFAULT_GRAVITY: GravitySettings = {
   // ヒートマップの色は「重み ÷ 最大値」の線形なので、1 だと弱い側が
   // 色の最下段に張り付く。3 なら最大値の 1/3 で白まで届く。
   intensity: 3,
+  contrast: 0.6,
   opacity: 0.85,
 }
 
@@ -31,6 +34,8 @@ export interface GravityLayerInput {
   radiusMeters: number
   /** 見た目の強さ 0.5..8。色は 重み × これ ÷ 最大値 で引かれる */
   intensity: number
+  /** 対数に掛けるガンマ 0.3..1.5 */
+  contrast: number
   /** 軌跡の下に敷くので控えめにできるようにする */
   opacity: number
   /** 現在のズーム。ヒートマップの格子の大きさを決めるのに使う */
@@ -38,6 +43,16 @@ export interface GravityLayerInput {
   /** 画面中央あたりの緯度。1 画素が何メートルかは緯度で変わる */
   latitude: number
 }
+
+/*
+ * 引きのときの 1 マスの大きさ（画面上の画素数）。
+ *
+ * 画素あたりのマス数は (光の半径 ÷ マスの大きさ)^2 で効くので、ここが値の広がりを
+ * 直接決める。半径 32px のとき、マス 2px なら市街地と道路沿いで 25:1 の差がつくが、
+ * 6px なら 8:1 まで縮む。マスを大きくするほど「よく行く場所」と
+ * 「たまに通る道」の差が縮まり、弱い側が見えるようになる。
+ */
+const CELL_PIXELS = 6
 
 /** そのズームで画面 1 画素が地上何メートルにあたるか */
 function metersPerPixel(zoom: number, latitude: number): number {
@@ -66,7 +81,7 @@ function roundToNice(v: number): number {
 export function heatCellMeters(radiusMeters: number, zoom: number, latitude: number): number {
   const mpp = metersPerPixel(zoom, latitude)
   // ズーム由来の値だけを丸める。粒度は利用者が選んだ値をそのまま尊重したい。
-  return Math.max(radiusMeters, roundToNice(mpp * 2))
+  return Math.max(radiusMeters, roundToNice(mpp * CELL_PIXELS))
 }
 
 /*
@@ -122,27 +137,28 @@ const heatCache = new WeakMap<Float32Array, Map<number, WeightedPoints>>()
  * すべて最小色に潰れる。対数にすると「1 時間 と 10 時間 と 100 時間」が
  * 等間隔に並び、たまにしか行かない場所も見えるようになる。
  */
-function toLog(seconds: number): number {
-  return Math.log1p(seconds / 60)
+function toLog(seconds: number, contrast: number): number {
+  return Math.pow(Math.log1p(seconds / 60), contrast)
 }
 
 /** ヒートマップ用に格子へまとめた点（格子サイズごとにキャッシュ） */
-function heatPoints(points: WeightedPoints, cellMeters: number): WeightedPoints {
+function heatPoints(points: WeightedPoints, cellMeters: number, contrast: number): WeightedPoints {
   let byCell = heatCache.get(points.weights)
   if (!byCell) {
     byCell = new Map()
     heatCache.set(points.weights, byCell)
   }
-  const cached = byCell.get(cellMeters)
+  const key = cellMeters * 1000 + contrast
+  const cached = byCell.get(key)
   if (cached) return cached
   const cells = aggregateToCells(points, cellMeters)
   const logged: WeightedPoints = {
     positions: cells.positions,
-    weights: cells.weights.map(toLog),
+    weights: cells.weights.map((w) => toLog(w, contrast)),
     count: cells.count,
     totalSeconds: cells.totalSeconds,
   }
-  byCell.set(cellMeters, logged)
+  byCell.set(key, logged)
   return logged
 }
 
@@ -156,7 +172,7 @@ function indexData(points: WeightedPoints): number[] {
 }
 
 export function buildGravityLayers(input: GravityLayerInput): Layer[] {
-  const { mode, points, radiusMeters, intensity, opacity, zoom, latitude } = input
+  const { mode, points, radiusMeters, intensity, contrast, opacity, zoom, latitude } = input
   if (mode === 'off' || points.count === 0) return []
 
   const layers: Layer[] = []
@@ -169,13 +185,13 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
   const logOfBin = (bin: number[]) => {
     let sum = 0
     for (const i of bin) sum += points.weights[i] ?? 0
-    return toLog(sum)
+    return toLog(sum, contrast)
   }
 
   if (mode === 'heat' || mode === 'both') {
     // 先に格子へまとめてから描く（点の密度の偏りを消すため）。
     // マスの大きさは粒度とズームの両方から決める（heatCellMeters を参照）。
-    const heat = heatPoints(points, heatCellMeters(radiusMeters, zoom, latitude))
+    const heat = heatPoints(points, heatCellMeters(radiusMeters, zoom, latitude), contrast)
     const heatIndices = indexData(heat)
     layers.push(
       new HeatmapLayer<number>({

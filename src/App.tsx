@@ -118,6 +118,7 @@ export function App() {
             points: gravityPoints,
             radiusMeters: gravity.radiusMeters,
             intensity: gravity.intensity,
+            contrast: gravity.contrast,
             opacity: gravity.opacity,
             zoom: view.zoom,
             latitude: view.latitude,
