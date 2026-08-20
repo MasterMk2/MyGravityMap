@@ -55,6 +55,26 @@ const COLOR_RANGE: Array<[number, number, number]> = [
  * 座標を拾えず、柱が 1 本も出なかった。添字配列なら軽さと確実さの両方が取れる。
  */
 const indexCache = new WeakMap<Float32Array, number[]>()
+const logWeightCache = new WeakMap<Float32Array, Float32Array>()
+
+/**
+ * ヒートマップ用に重みを対数圧縮する。
+ *
+ * HeatmapLayer は画素ごとに重みを足し込み、その最大値で正規化してから
+ * threshold 未満を透明にする。滞在時間は自宅が桁違いに大きいので、
+ * 生の秒数のままだと自宅の一点だけが残り、他は全部 threshold を下回って
+ * 何も描かれていないように見える。
+ *
+ * 六角柱の側はパーセンタイルで頭打ちにできるので生の秒数のまま使う。
+ */
+function logWeights(weights: Float32Array): Float32Array {
+  const cached = logWeightCache.get(weights)
+  if (cached) return cached
+  const out = new Float32Array(weights.length)
+  for (let i = 0; i < weights.length; i++) out[i] = Math.log1p(weights[i]! / 60)
+  logWeightCache.set(weights, out)
+  return out
+}
 
 function indexData(points: WeightedPoints): number[] {
   const cached = indexCache.get(points.positions)
@@ -76,6 +96,7 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
     points.positions[i * 2 + 1] ?? 0,
   ]
   const weightOf = (i: number) => points.weights[i] ?? 0
+  const heatWeights = logWeights(points.weights)
 
   if (mode === 'heat' || mode === 'both') {
     layers.push(
@@ -83,15 +104,15 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
         id: 'gravity-heat',
         data,
         getPosition: positionOf,
-        getWeight: weightOf,
+        getWeight: (i: number) => heatWeights[i] ?? 0,
         aggregation: 'SUM',
-        radiusPixels: 34,
+        radiusPixels: 40,
         intensity,
-        // 上位 1% を頭打ちにしないと、自宅の 1 マスだけが赤でほかが全部黒になる
-        threshold: 0.03,
+        // 対数圧縮したうえで、さらに低い側も拾えるよう既定より下げる
+        threshold: 0.01,
         colorRange: COLOR_RANGE,
         opacity,
-        updateTriggers: { getWeight: points.weights },
+        updateTriggers: { getWeight: heatWeights },
       }),
     )
   }

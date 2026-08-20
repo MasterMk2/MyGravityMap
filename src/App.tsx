@@ -95,29 +95,44 @@ export function App() {
     mapRef.current?.setCenter(cursorLon, cursorLat)
   }, [follow, cursorLon, cursorLat])
 
-  const layers = useMemo<Layer[]>(() => {
-    if (!dataset) return []
-    // 重力マップを先に積む＝軌跡がその上に描かれる
-    const gravityLayers = buildGravityLayers({
-      mode: gravity.mode,
-      points: gravityPoints,
-      radiusMeters: gravity.radiusMeters,
-      intensity: gravity.intensity,
-      opacity: gravity.opacity,
-    })
-    return [
-      ...gravityLayers,
-      ...buildPlaybackLayers({
-        trips: pb.trips,
-        rel: pb.rel,
-        currentRel: pb.currentRel,
-        settings: pb.settings,
-        colors: pb.colors,
-        activeVisit: pb.activeVisit,
-        cursor: pb.cursor,
-      }),
-    ]
-  }, [dataset, gravity, gravityPoints, pb.trips, pb.rel, pb.currentRel, pb.settings, pb.colors, pb.activeVisit, pb.cursor])
+  // 重力マップは再生位置に依存しない。再生中は currentRel が毎フレーム変わるので、
+  // 一緒の useMemo に入れると集計レイヤーを毎フレーム作り直すことになり、
+  // 集計が終わる前に作り直されて柱が出たり出なかったりする。
+  const gravityLayers = useMemo<Layer[]>(
+    () =>
+      dataset
+        ? buildGravityLayers({
+            mode: gravity.mode,
+            points: gravityPoints,
+            radiusMeters: gravity.radiusMeters,
+            intensity: gravity.intensity,
+            opacity: gravity.opacity,
+          })
+        : [],
+    [dataset, gravity, gravityPoints],
+  )
+
+  const playbackLayers = useMemo<Layer[]>(
+    () =>
+      dataset
+        ? buildPlaybackLayers({
+            trips: pb.trips,
+            rel: pb.rel,
+            currentRel: pb.currentRel,
+            settings: pb.settings,
+            colors: pb.colors,
+            activeVisit: pb.activeVisit,
+            cursor: pb.cursor,
+          })
+        : [],
+    [dataset, pb.trips, pb.rel, pb.currentRel, pb.settings, pb.colors, pb.activeVisit, pb.cursor],
+  )
+
+  // 重力マップを先に積む＝軌跡がその上に描かれる
+  const layers = useMemo<Layer[]>(
+    () => [...gravityLayers, ...playbackLayers],
+    [gravityLayers, playbackLayers],
+  )
 
   return (
     <div className="app" style={{ ['--dock-h' as string]: `${dockHeight}px` } as React.CSSProperties}>
