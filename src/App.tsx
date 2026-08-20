@@ -13,7 +13,13 @@ import './App.css'
 export function App() {
   const { status, dataset } = useAppStore()
   const [basemap, setBasemap] = useState<BasemapId>('dark')
+  /** 地図を沈める量。軌跡を浮かせるための既定値 */
+  const [dim, setDim] = useState(0.35)
   const mapRef = useRef<MapCanvasHandle>(null)
+
+  // 明るさと彩度を同時に落とす。deck.gl は別キャンバスなので軌跡の色は変わらない。
+  const mapFilter =
+    dim > 0 ? `brightness(${(1 - dim * 0.75).toFixed(2)}) saturate(${(1 - dim * 0.6).toFixed(2)})` : ''
 
   // 開発時だけ: ?dev=/Sampledata/location-history.json でファイル選択を省略できる。
   // dev サーバはリポジトリ内のファイルを配信するので、手作業なしに実データで確認できる。
@@ -43,13 +49,15 @@ export function App() {
 
   return (
     <div className="app">
-      <MapCanvas ref={mapRef} layers={layers} basemap={basemap}>
+      <MapCanvas ref={mapRef} layers={layers} basemap={basemap} mapFilter={mapFilter}>
         {status !== 'ready' && <FileDrop />}
         {status === 'ready' && dataset && (
           <StatsPanel
             dataset={dataset}
             basemap={basemap}
             onBasemapChange={setBasemap}
+            dim={dim}
+            onDimChange={setDim}
             onFocus={(lon, lat) => mapRef.current?.flyTo({ longitude: lon, latitude: lat, zoom: 12 })}
           />
         )}

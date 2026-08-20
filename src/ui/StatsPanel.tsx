@@ -1,23 +1,21 @@
 import { useState } from 'react'
 import type { Dataset } from '../core/types'
 import type { BasemapId } from '../map/basemaps'
+import { BASEMAPS, BASEMAP_ORDER } from '../map/basemaps'
 import { useAppStore } from '../store/useAppStore'
 
 interface Props {
   dataset: Dataset
   basemap: BasemapId
   onBasemapChange: (b: BasemapId) => void
+  /** 地図を沈める量 0..0.85 */
+  dim: number
+  onDimChange: (v: number) => void
   onFocus: (lon: number, lat: number) => void
 }
 
 const nf = new Intl.NumberFormat('ja-JP')
 
-const BASEMAP_OPTIONS: Array<{ id: BasemapId; label: string; hint: string }> = [
-  { id: 'dark', label: 'ダーク', hint: 'CARTO dark matter（ベクタ）' },
-  { id: 'darkRaster', label: 'ダーク(ラスタ)', hint: 'CARTO dark（ラスタ。Worker を使わない）' },
-  { id: 'light', label: 'ライト', hint: 'CARTO positron（ベクタ）' },
-  { id: 'none', label: 'なし', hint: '地図タイルを取得しない（通信ゼロ）' },
-]
 
 function ymd(sec: number): string {
   const d = new Date(sec * 1000)
@@ -30,7 +28,14 @@ function hours(sec: number): string {
   return `${nf.format(Math.round(sec / 3600))} 時間`
 }
 
-export function StatsPanel({ dataset, basemap, onBasemapChange, onFocus }: Props) {
+export function StatsPanel({
+  dataset,
+  basemap,
+  onBasemapChange,
+  dim,
+  onDimChange,
+  onFocus,
+}: Props) {
   const reset = useAppStore((s) => s.reset)
   const fromCache = useAppStore((s) => s.fromCache)
   const [tab, setTab] = useState<'summary' | 'places' | 'coverage'>('summary')
@@ -131,20 +136,36 @@ export function StatsPanel({ dataset, basemap, onBasemapChange, onFocus }: Props
       <div className="panel__foot">
         {/* ネイティブの select はドロップダウン内の文字色を OS 側が決めてしまい、
             暗いテーマだと白背景に白文字になって読めない。自前のボタンにする。 */}
-        <span className="panel__footLabel">背景</span>
-        <div className="segmented" role="group" aria-label="背景の地図">
-          {BASEMAP_OPTIONS.map((o) => (
-            <button
-              key={o.id}
-              className={basemap === o.id ? 'is-active' : ''}
-              aria-pressed={basemap === o.id}
-              title={o.hint}
-              onClick={() => onBasemapChange(o.id)}
-            >
-              {o.label}
-            </button>
-          ))}
+        <div className="basemaps">
+          <span className="basemaps__label">地図</span>
+          <div className="basemaps__grid" role="group" aria-label="背景の地図">
+            {BASEMAP_ORDER.map((id) => (
+              <button
+                key={id}
+                className={basemap === id ? 'is-active' : ''}
+                aria-pressed={basemap === id}
+                title={BASEMAPS[id].hint}
+                onClick={() => onBasemapChange(id)}
+              >
+                {BASEMAPS[id].label}
+              </button>
+            ))}
+          </div>
         </div>
+        <label className="dim">
+          <span>
+            地図を沈める <em>{Math.round(dim * 100)}%</em>
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={0.85}
+            step={0.05}
+            value={dim}
+            onChange={(e) => onDimChange(Number(e.target.value))}
+            aria-label="地図の明るさを下げて軌跡を目立たせる"
+          />
+        </label>
       </div>
     </div>
   )

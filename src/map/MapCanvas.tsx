@@ -15,7 +15,7 @@ import {
 import type { FitBoundsOptions, FlyToOptions, MapOptions } from 'maplibre-gl'
 import { MapboxOverlay } from '@deck.gl/mapbox'
 import type { Layer } from '@deck.gl/core'
-import { BASEMAPS, ATTRIBUTION } from './basemaps'
+import { BASEMAPS, attributionOf } from './basemaps'
 import type { BasemapId } from './basemaps'
 import { ensureMaplibreWorker } from './maplibreWorker'
 import './MapCanvas.css'
@@ -46,6 +46,11 @@ export interface MapCanvasProps {
   onViewStateChange?: (v: MapCanvasViewState) => void
   /** rendered as an absolutely-positioned overlay above the map (for HUD/controls) */
   children?: ReactNode
+  /**
+   * 地図（ベースマップ）だけに掛ける CSS フィルタ。例: 'brightness(0.6) saturate(0.7)'
+   * deck.gl は別キャンバスなので軌跡の色はそのまま。地図を落ち着かせて軌跡を目立たせる用途。
+   */
+  mapFilter?: string
 }
 
 /** imperative helpers exposed via ref */
@@ -80,10 +85,11 @@ function syncAttribution(
     map.removeControl(attributionRef.current)
     attributionRef.current = null
   }
-  if (basemap !== 'none') {
+  const attribution = attributionOf(basemap)
+  if (attribution) {
     const control = new AttributionControl({
       compact: false,
-      customAttribution: ATTRIBUTION,
+      customAttribution: attribution,
     })
     map.addControl(control)
     attributionRef.current = control
@@ -92,7 +98,14 @@ function syncAttribution(
 
 export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
   function MapCanvas(props, ref) {
-    const { layers, basemap = 'dark', initialViewState, onViewStateChange, children } = props
+    const {
+      layers,
+      basemap = 'dark',
+      initialViewState,
+      onViewStateChange,
+      children,
+      mapFilter,
+    } = props
 
     const containerRef = useRef<HTMLDivElement | null>(null)
     const mapRef = useRef<MapLibreMap | null>(null)
@@ -239,7 +252,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
 
     return (
       <div className="mgm-map-canvas">
-        <div ref={containerRef} className="mgm-map-canvas__map" />
+        <div
+          ref={containerRef}
+          className="mgm-map-canvas__map"
+          style={mapFilter ? ({ '--map-filter': mapFilter } as React.CSSProperties) : undefined}
+        />
         <div className="mgm-map-canvas__overlay">{children}</div>
       </div>
     )

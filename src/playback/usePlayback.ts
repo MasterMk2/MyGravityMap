@@ -16,13 +16,14 @@ const GAP_THRESHOLD_SEC = 6 * 3600
 
 const DEFAULT_SETTINGS: PlaybackSettings = {
   speed: 86400,
-  trail: 'gradient',
+  // 残る実線＋先頭の尾。加算合成にすると通った回数の多い道が濃く光る
+  trail: 'both',
   trailLengthSec: 6 * 3600,
   skipGaps: true,
   colorBy: 'year',
-  lineWidth: 2,
-  opacity: 0.85,
-  additiveBlending: false,
+  lineWidth: 1.5,
+  opacity: 0.8,
+  additiveBlending: true,
   camera: 'fixed',
 }
 
