@@ -15,6 +15,20 @@ import { positionAt } from './position'
 /** 空白とみなす最小の長さ。これ以上あいたら「記録が無い区間」として詰められる */
 const GAP_THRESHOLD_SEC = 6 * 3600
 
+/** 尾の長さのプリセット（PlaybackBar と同じ並び） */
+const TRAIL_PRESETS = [3600, 21600, 86400, 604800, 2592000, 7776000, 31536000, 315360000]
+
+/**
+ * 期間の長さから尾の長さを選ぶ。目安は期間の 1/20。
+ * 数年スパンで 1 週間の尾は一瞬で消えてしまうため、期間に追随させる。
+ */
+export function defaultTrailFor(windowSec: number): number {
+  const target = windowSec / 20
+  let best = TRAIL_PRESETS[0]!
+  for (const p of TRAIL_PRESETS) if (p <= target) best = p
+  return best
+}
+
 const DEFAULT_SETTINGS: PlaybackSettings = {
   speed: 86400,
   // 残る実線＋先頭の尾。加算合成にすると通った回数の多い道が濃く光る
@@ -45,7 +59,12 @@ export function usePlayback(dataset: Dataset | null) {
     setSelection(bounds)
     setPos(0)
     setPlaying(false)
-    setSettings((s) => ({ ...s, speed: defaultSpeedFor(bounds.end - bounds.start) }))
+    const span = bounds.end - bounds.start
+    setSettings((s) => ({
+      ...s,
+      speed: defaultSpeedFor(span),
+      trailLengthSec: defaultTrailFor(span),
+    }))
   }, [bounds])
 
   const trips = useMemo(
@@ -123,9 +142,17 @@ export function usePlayback(dataset: Dataset | null) {
     [],
   )
 
+  // 期間を変えたら、その長さに合った速度と尾の長さに選び直す。
+  // 8 年を見るときと 1 日を見るときで適切な値がまるで違うため。
   const changeWindow = useCallback((w: TimeWindow) => {
     setSelection(w)
     setPos(0)
+    const span = Math.max(1, w.end - w.start)
+    setSettings((s) => ({
+      ...s,
+      speed: defaultSpeedFor(span),
+      trailLengthSec: defaultTrailFor(span),
+    }))
   }, [])
 
   return {

@@ -45,11 +45,20 @@ const TRAIL_OPTIONS: Array<{ value: PlaybackSettings['trail']; label: string }> 
   { value: 'both', label: '両方' },
 ]
 
+/**
+ * 尾の長さ。数年スパンでは 1 週間は一瞬で消えてしまうので、
+ * 月・年単位まで用意する。期間を変えたときは usePlayback 側が
+ * 期間の長さに合わせて自動で選び直す。
+ */
 const TRAIL_LENGTH_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 3600, label: '1時間' },
   { value: 21600, label: '6時間' },
   { value: 86400, label: '1日' },
   { value: 604800, label: '1週間' },
+  { value: 2592000, label: '1か月' },
+  { value: 7776000, label: '3か月' },
+  { value: 31536000, label: '1年' },
+  { value: 315360000, label: '全期間' },
 ]
 
 const COLOR_BY_OPTIONS: Array<{ value: PlaybackSettings['colorBy']; label: string }> = [
