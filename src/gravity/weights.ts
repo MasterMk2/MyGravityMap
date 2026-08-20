@@ -106,6 +106,56 @@ export function visitWeights(visits: Visit[], w: TimeWindow): WeightedPoints {
   return { positions, weights, count: target.length, totalSeconds: seconds }
 }
 
+/**
+ * 点を等面積の格子にまとめて、1 マス 1 点にする。
+ *
+ * ヒートマップは画素ごとに重みを足し込むので、生の点をそのまま渡すと
+ * 「滞在時間が長い」ではなく「点が密に記録されている」場所が光ってしまう。
+ * 先に格子へまとめておけば 1 マス 1 点になり、点の密度の偏りが消える。
+ *
+ * 位置は滞在時間で加重した重心。
+ */
+export function aggregateToCells(points: WeightedPoints, cellMeters: number): WeightedPoints {
+  if (points.count === 0) return EMPTY
+
+  const latStep = cellMeters / 111_320
+  const cells = new Map<string, { lon: number; lat: number; w: number }>()
+
+  for (let i = 0; i < points.count; i++) {
+    const lon = points.positions[i * 2]!
+    const lat = points.positions[i * 2 + 1]!
+    const w = points.weights[i]!
+    // 経度の刻みは緯度で縮む。高緯度でマスが横に伸びないように補正する。
+    const lonStep = cellMeters / (111_320 * Math.max(0.05, Math.cos((lat * Math.PI) / 180)))
+    const key = `${Math.round(lat / latStep)}:${Math.round(lon / lonStep)}`
+    const cell = cells.get(key)
+    if (cell) {
+      cell.lon += lon * w
+      cell.lat += lat * w
+      cell.w += w
+    } else {
+      cells.set(key, { lon: lon * w, lat: lat * w, w })
+    }
+  }
+
+  const positions = new Float32Array(cells.size * 2)
+  const weights = new Float32Array(cells.size)
+  let i = 0
+  let totalSeconds = 0
+  for (const c of cells.values()) {
+    // 重み 0 の点しか無いマスは重心が出せないので中心をそのまま使えない。
+    // 実際には weights は必ず正だが、念のため 0 除算を避ける。
+    const d = c.w > 0 ? c.w : 1
+    positions[i * 2] = c.lon / d
+    positions[i * 2 + 1] = c.lat / d
+    weights[i] = c.w
+    totalSeconds += c.w
+    i++
+  }
+
+  return { positions, weights, count: cells.size, totalSeconds }
+}
+
 export function buildWeightedPoints(
   dataset: Dataset | null,
   trips: Trip[],

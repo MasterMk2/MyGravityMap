@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { trackWeights, visitWeights } from '../src/gravity/weights'
+import { aggregateToCells, trackWeights, visitWeights } from '../src/gravity/weights'
 import type { Trip, Visit } from '../src/core/types'
 
 function trip(coords: number[], times: number[]): Trip {
@@ -85,5 +85,47 @@ describe('visitWeights', () => {
   it('滞在時間を信用できない訪問は使わない', () => {
     const derived = { ...visit(0, 3600, 0), durationReliable: false, source: 'derived' as const }
     expect(visitWeights([derived], WINDOW).count).toBe(0)
+  })
+})
+
+describe('aggregateToCells', () => {
+  const pts = (coords: number[], weights: number[]) => ({
+    positions: new Float32Array(coords),
+    weights: new Float32Array(weights),
+    count: weights.length,
+    totalSeconds: weights.reduce((a, b) => a + b, 0),
+  })
+
+  it('近い点は 1 マスにまとまり、重みは足される', () => {
+    // 同じ 150m マスに入る 2 点（約 20m 差）
+    const p = pts([139.7, 35.1, 139.7002, 35.1001], [600, 1200])
+    const cells = aggregateToCells(p, 150)
+    expect(cells.count).toBe(1)
+    expect(cells.weights[0]).toBe(1800)
+  })
+
+  it('離れた点は別のマスになる', () => {
+    // 約 900m 離れている
+    const p = pts([139.7, 35.1, 139.71, 35.1], [600, 600])
+    const cells = aggregateToCells(p, 150)
+    expect(cells.count).toBe(2)
+  })
+
+  it('マスの位置は滞在時間で加重した重心になる', () => {
+    const p = pts([139.7, 35.1, 139.7002, 35.1], [100, 300])
+    const cells = aggregateToCells(p, 150)
+    expect(cells.count).toBe(1)
+    // 重みが 1:3 なので、重心は後者寄り（139.70015）
+    expect(cells.positions[0]).toBeCloseTo(139.70015, 4)
+  })
+
+  it('合計滞在時間は保存される', () => {
+    const p = pts([139.7, 35.1, 139.71, 35.1, 139.7001, 35.1], [600, 900, 300])
+    const cells = aggregateToCells(p, 150)
+    expect(cells.totalSeconds).toBe(1800)
+  })
+
+  it('点が無ければ空を返す', () => {
+    expect(aggregateToCells(pts([], []), 150).count).toBe(0)
   })
 })

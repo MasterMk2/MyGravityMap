@@ -1,6 +1,6 @@
 import type { Layer } from '@deck.gl/core'
 import { HeatmapLayer, HexagonLayer } from '@deck.gl/aggregation-layers'
-import type { GravitySource, WeightedPoints } from './weights'
+import { aggregateToCells, type GravitySource, type WeightedPoints } from './weights'
 
 export type GravityMode = 'off' | 'heat' | 'hex' | 'both'
 
@@ -55,25 +55,37 @@ const COLOR_RANGE: Array<[number, number, number]> = [
  * 座標を拾えず、柱が 1 本も出なかった。添字配列なら軽さと確実さの両方が取れる。
  */
 const indexCache = new WeakMap<Float32Array, number[]>()
-const logWeightCache = new WeakMap<Float32Array, Float32Array>()
+const heatCache = new WeakMap<Float32Array, Map<number, WeightedPoints>>()
 
 /**
- * ヒートマップ用に重みを対数圧縮する。
+ * 滞在時間 → 表示用の重み。分に直してから log1p を取る。
  *
- * HeatmapLayer は画素ごとに重みを足し込み、その最大値で正規化してから
- * threshold 未満を透明にする。滞在時間は自宅が桁違いに大きいので、
- * 生の秒数のままだと自宅の一点だけが残り、他は全部 threshold を下回って
- * 何も描かれていないように見える。
- *
- * 六角柱の側はパーセンタイルで頭打ちにできるので生の秒数のまま使う。
+ * 自宅は他の場所より 3〜4 桁大きいので、線形のままだと自宅以外が
+ * すべて最小色に潰れる。対数にすると「1 時間 と 10 時間 と 100 時間」が
+ * 等間隔に並び、たまにしか行かない場所も見えるようになる。
  */
-function logWeights(weights: Float32Array): Float32Array {
-  const cached = logWeightCache.get(weights)
+function toLog(seconds: number): number {
+  return Math.log1p(seconds / 60)
+}
+
+/** ヒートマップ用に格子へまとめた点（格子サイズごとにキャッシュ） */
+function heatPoints(points: WeightedPoints, cellMeters: number): WeightedPoints {
+  let byCell = heatCache.get(points.weights)
+  if (!byCell) {
+    byCell = new Map()
+    heatCache.set(points.weights, byCell)
+  }
+  const cached = byCell.get(cellMeters)
   if (cached) return cached
-  const out = new Float32Array(weights.length)
-  for (let i = 0; i < weights.length; i++) out[i] = Math.log1p(weights[i]! / 60)
-  logWeightCache.set(weights, out)
-  return out
+  const cells = aggregateToCells(points, cellMeters)
+  const logged: WeightedPoints = {
+    positions: cells.positions,
+    weights: cells.weights.map(toLog),
+    count: cells.count,
+    totalSeconds: cells.totalSeconds,
+  }
+  byCell.set(cellMeters, logged)
+  return logged
 }
 
 function indexData(points: WeightedPoints): number[] {
@@ -95,24 +107,41 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
     points.positions[i * 2] ?? 0,
     points.positions[i * 2 + 1] ?? 0,
   ]
-  const weightOf = (i: number) => points.weights[i] ?? 0
-  const heatWeights = logWeights(points.weights)
+  /** ビンの合計滞在秒数を対数に写す。集計の「後」に掛けるのが肝 */
+  const logOfBin = (bin: number[]) => {
+    let sum = 0
+    for (const i of bin) sum += points.weights[i] ?? 0
+    return toLog(sum)
+  }
 
   if (mode === 'heat' || mode === 'both') {
+    // ヒートマップは 150m の格子にまとめてから描く（点の密度の偏りを消すため）
+    const heat = heatPoints(points, 150)
+    const heatIndices = indexData(heat)
     layers.push(
       new HeatmapLayer<number>({
         id: 'gravity-heat',
-        data,
-        getPosition: positionOf,
-        getWeight: (i: number) => heatWeights[i] ?? 0,
-        aggregation: 'SUM',
-        radiusPixels: 40,
+        data: heatIndices,
+        getPosition: (i: number) => [
+          heat.positions[i * 2] ?? 0,
+          heat.positions[i * 2 + 1] ?? 0,
+        ],
+        getWeight: (i: number) => heat.weights[i] ?? 0,
+        /*
+         * MEAN であって SUM ではない。
+         * 事前に等面積の格子へまとめてあるので 1 マス 1 点になっており、
+         * SUM だと画素に入るマスの数（＝ズーム）で明るさが変わってしまう。
+         * MEAN なら「そのあたりの 1 マスあたりの滞在時間」を見ることになり、
+         * ズームを変えても意味が変わらない。
+         */
+        aggregation: 'MEAN',
+        radiusPixels: 44,
         intensity,
-        // 対数圧縮したうえで、さらに低い側も拾えるよう既定より下げる
+        // 対数にしてあるので、低い側も拾えるよう既定（0.05）より下げる
         threshold: 0.01,
         colorRange: COLOR_RANGE,
         opacity,
-        updateTriggers: { getWeight: heatWeights },
+        updateTriggers: { getPosition: heat.positions, getWeight: heat.weights },
       }),
     )
   }
@@ -123,10 +152,17 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
         id: 'gravity-hex',
         data,
         getPosition: positionOf,
-        getColorWeight: weightOf,
-        getElevationWeight: weightOf,
-        colorAggregation: 'SUM',
-        elevationAggregation: 'SUM',
+        /*
+         * 集計「後」に対数を掛ける。
+         *
+         * getColorWeight + colorAggregation:'SUM' だと合計値がそのまま
+         * elevationRange へ線形に写されるため、自宅が 3〜4 桁大きいこの手の
+         * データでは自宅以外の柱が地面に張り付いてしまう。
+         * ビンごとの合計を log1p に写してから写像させると、
+         * 「1 時間 / 10 時間 / 100 時間」が等間隔に並ぶ。
+         */
+        getColorValue: logOfBin,
+        getElevationValue: logOfBin,
         radius: radiusMeters,
         extruded: true,
         /*
@@ -153,9 +189,11 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
          * 250m 粒度なら最大 2.5km、1km 粒度なら最大 10km。
          */
         elevationScale: (radiusMeters * 10 * intensity) / 1000,
+        // 対数にした時点で外れ値は十分潰れているので、頭打ちはしない。
+        // ここで切ると自宅と職場の差まで消えてしまう。
         elevationLowerPercentile: 0,
-        elevationUpperPercentile: 99,
-        upperPercentile: 99,
+        elevationUpperPercentile: 100,
+        upperPercentile: 100,
         colorRange: COLOR_RANGE,
         coverage: 0.86,
         opacity: mode === 'both' ? opacity * 0.85 : opacity,
@@ -167,8 +205,8 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
           specularColor: [255, 255, 255],
         },
         updateTriggers: {
-          getColorWeight: points.weights,
-          getElevationWeight: points.weights,
+          getColorValue: points.weights,
+          getElevationValue: points.weights,
         },
       }),
     )
