@@ -17,7 +17,11 @@ import { MapboxOverlay } from '@deck.gl/mapbox'
 import type { Layer } from '@deck.gl/core'
 import { BASEMAPS, ATTRIBUTION } from './basemaps'
 import type { BasemapId } from './basemaps'
+import { ensureMaplibreWorker } from './maplibreWorker'
 import './MapCanvas.css'
+
+// 地図を作る前に Worker の場所を教えておく（詳細は maplibreWorker.ts）
+ensureMaplibreWorker()
 
 export interface MapCanvasViewState {
   longitude: number
