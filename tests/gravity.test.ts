@@ -32,8 +32,9 @@ function visit(start: number, end: number, level: 0 | 1, lat = 35.1, lon = 139.7
 const WINDOW = { start: 0, end: 100000 }
 
 describe('trackWeights', () => {
-  it('各点に「次の点までの秒数」を与える', () => {
-    const t = trip([139.7, 35.1, 139.8, 35.2, 139.9, 35.3], [0, 300, 900])
+  it('近接した点には「次の点までの秒数」をそのまま与える', () => {
+    // 250m 未満なので補間は起きない（約 20m と 30m の移動）
+    const t = trip([139.7, 35.1, 139.7002, 35.1001, 139.7004, 35.1003], [0, 300, 900])
     const w = trackWeights([t], WINDOW)
     expect(w.count).toBe(3)
     expect([...w.weights]).toEqual([300, 600, 60]) // 最後の点は間隔が分からないので 60 秒
@@ -42,12 +43,35 @@ describe('trackWeights', () => {
     expect(w.positions[1]).toBeCloseTo(35.1, 4)
   })
 
-  it('間隔が長すぎる点は 30 分で頭打ちにする', () => {
-    // 上限が無いと、記録が飛んだ区間の直前の 1 点が何時間分もの重みを持ち、
-    // 実際には居なかった場所に山ができてしまう
+  it('離れた点の間を埋める（等速移動が点々にならないように）', () => {
+    // 約 9km を 5 分で移動（時速 108km）。250m 刻みなので数十点に割れる
+    const t = trip([139.7, 35.1, 139.8, 35.1], [0, 300])
+    const w = trackWeights([t], WINDOW)
+    expect(w.count).toBeGreaterThan(20)
+    // 補間しても合計滞在時間は変わらない（区間の秒数を等分するだけ）
+    const sum = [...w.weights].reduce((a, b) => a + b, 0)
+    expect(sum).toBeCloseTo(300 + 60, 1)
+    // 始点と終点のあいだに点が並ぶ
+    const lons = [...w.weights].map((_, i) => w.positions[i * 2]!)
+    expect(Math.min(...lons)).toBeCloseTo(139.7, 3)
+    expect(Math.max(...lons)).toBeCloseTo(139.8, 3)
+  })
+
+  it('速すぎる区間は埋めない（飛行機の空の上を塗らないため）', () => {
+    // 約 900km を 1 時間（時速 900km）
+    const t = trip([139.7, 35.1, 149.7, 35.1], [0, 3600])
+    const w = trackWeights([t], WINDOW)
+    expect(w.count).toBe(2)
+  })
+
+  it('間隔が長すぎる区間は 30 分で頭打ちにする', () => {
+    // 上限が無いと、記録が飛んだ区間が何時間分もの重みを持ち、
+    // 実際には居なかった場所に山ができてしまう。
+    // 補間で複数点に割れるので、合計が 1800 秒に収まっていることを見る。
     const t = trip([139.7, 35.1, 139.8, 35.2], [0, 50000])
     const w = trackWeights([t], WINDOW)
-    expect(w.weights[0]).toBe(1800)
+    const sum = [...w.weights].reduce((a, b) => a + b, 0)
+    expect(sum).toBeCloseTo(1800 + 60, 1)
   })
 
   it('期間の外の点は数えない', () => {
@@ -60,7 +84,10 @@ describe('trackWeights', () => {
   it('合計秒数は重みの合計と一致する', () => {
     const t = trip([139.7, 35.1, 139.8, 35.2, 139.9, 35.3], [0, 300, 900])
     const w = trackWeights([t], WINDOW)
-    expect(w.totalSeconds).toBe([...w.weights].reduce((a, b) => a + b, 0))
+    expect(w.totalSeconds).toBeCloseTo(
+      [...w.weights].reduce((a, b) => a + b, 0),
+      1,
+    )
   })
 })
 

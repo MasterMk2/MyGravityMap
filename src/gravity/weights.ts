@@ -13,6 +13,7 @@
  *   2024 年秋以降にしか存在しない。
  */
 import type { Dataset, TimeWindow, Trip, Visit } from '../core/types'
+import { haversineMeters } from '../core/geo'
 
 export type GravitySource = 'track' | 'visit'
 
@@ -45,36 +46,92 @@ function overlaps(aStart: number, aEnd: number, w: TimeWindow): boolean {
   return aStart < w.end && aEnd > w.start
 }
 
-/** 軌跡の点を「次の点までの秒数」で重み付けする */
-export function trackWeights(trips: Trip[], w: TimeWindow): WeightedPoints {
-  let total = 0
-  for (const t of trips) total += t.times.length
-  if (total === 0) return EMPTY
+/**
+ * 補間の刻み（メートル）。
+ *
+ * 記録された点の間隔は中央値 437m、p90 で 2.6km ある。移動中の点をそのまま置くと、
+ * 等速で走った区間が数 km おきの数珠つなぎになって「点々」に見える。
+ * 区間を刻んで、そのあいだの滞在時間を等分して配れば連続した線になる。
+ * 250m 刻みで全期間 10 万区間・10.3 万 km を埋めると約 48 万点。
+ */
+const DENSIFY_STEP_METERS = 250
 
-  const positions = new Float32Array(total * 2)
-  const weights = new Float32Array(total)
-  let n = 0
+/**
+ * これより速い区間は補間しない。
+ * 飛行機の大圏補間区間まで塗ると、通っただけの空の上に太い帯ができてしまう。
+ */
+const DENSIFY_MAX_KMH = 200
+
+/** 1 区間から作る点数の上限。記録が飛んだ長い区間で暴走しないように */
+const MAX_STEPS_PER_SEGMENT = 512
+
+/**
+ * 軌跡の点を「次の点までの秒数」で重み付けし、区間の途中も埋める。
+ *
+ * 重みの単位は秒のまま。区間を n 個に刻んだら、その区間の秒数も n 等分するので、
+ * 合計滞在時間は補間しても変わらない。
+ */
+export function trackWeights(trips: Trip[], w: TimeWindow): WeightedPoints {
+  const lons: number[] = []
+  const lats: number[] = []
+  const weights: number[] = []
   let seconds = 0
+
+  const push = (lon: number, lat: number, sec: number) => {
+    lons.push(lon)
+    lats.push(lat)
+    weights.push(sec)
+    seconds += sec
+  }
 
   for (const trip of trips) {
     const len = trip.times.length
     for (let i = 0; i < len; i++) {
       const t = trip.times[i]!
       if (t < w.start || t > w.end) continue
-      // 次の点までの時間。最後の点は間隔が分からないので控えめに 60 秒とする。
-      const dt = i + 1 < len ? Math.min(trip.times[i + 1]! - t, MAX_SECONDS_PER_POINT) : 60
-      positions[n * 2] = trip.coords[i * 2]!
-      positions[n * 2 + 1] = trip.coords[i * 2 + 1]!
-      weights[n] = dt
-      seconds += dt
-      n++
+
+      const lon = trip.coords[i * 2]!
+      const lat = trip.coords[i * 2 + 1]!
+
+      if (i + 1 >= len) {
+        // 最後の点は次の間隔が分からないので控えめに 60 秒とする
+        push(lon, lat, 60)
+        continue
+      }
+
+      const dt = Math.min(trip.times[i + 1]! - t, MAX_SECONDS_PER_POINT)
+      const lon2 = trip.coords[(i + 1) * 2]!
+      const lat2 = trip.coords[(i + 1) * 2 + 1]!
+      const meters = haversineMeters(lat, lon, lat2, lon2)
+      const kmh = dt > 0 ? meters / 1000 / (dt / 3600) : 0
+
+      if (meters <= DENSIFY_STEP_METERS || kmh > DENSIFY_MAX_KMH) {
+        push(lon, lat, dt)
+        continue
+      }
+
+      const steps = Math.min(Math.ceil(meters / DENSIFY_STEP_METERS), MAX_STEPS_PER_SEGMENT)
+      const share = dt / steps
+      // 終点は置かない（次の点が自分で置くので、置くと二重になる）
+      for (let k = 0; k < steps; k++) {
+        const f = k / steps
+        push(lon + (lon2 - lon) * f, lat + (lat2 - lat) * f, share)
+      }
     }
   }
 
+  if (weights.length === 0) return EMPTY
+
+  const positions = new Float32Array(weights.length * 2)
+  for (let i = 0; i < weights.length; i++) {
+    positions[i * 2] = lons[i]!
+    positions[i * 2 + 1] = lats[i]!
+  }
+
   return {
-    positions: positions.subarray(0, n * 2),
-    weights: weights.subarray(0, n),
-    count: n,
+    positions,
+    weights: Float32Array.from(weights),
+    count: weights.length,
     totalSeconds: seconds,
   }
 }
