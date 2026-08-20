@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Dataset, ParseMessage } from '../core/types'
+import { PIPELINE_VERSION } from '../core/types'
 import type { ParseSource } from '../workers/parse.worker'
 import { fileFingerprint, loadDataset, saveDataset } from './db'
 
@@ -33,7 +34,7 @@ export const useAppStore = create<AppState>((set) => ({
   loadFile: async (file: File) => {
     set({ status: 'hashing', phase: 'ファイルを確認中', progress: 0, error: null })
     try {
-      const fileHash = await fileFingerprint(file)
+      const fileHash = `${await fileFingerprint(file)}:p${PIPELINE_VERSION}`
       await run({ kind: 'file', file }, fileHash, set)
     } catch (err) {
       set({ status: 'error', error: err instanceof Error ? err.message : String(err) })
@@ -44,7 +45,7 @@ export const useAppStore = create<AppState>((set) => ({
     set({ status: 'hashing', phase: 'ファイルを確認中', progress: 0, error: null })
     try {
       const name = url.split('/').pop() ?? url
-      await run({ kind: 'url', url, name }, `dev:${url}`, set)
+      await run({ kind: 'url', url, name }, `dev:${url}:p${PIPELINE_VERSION}`, set)
     } catch (err) {
       set({ status: 'error', error: err instanceof Error ? err.message : String(err) })
     }

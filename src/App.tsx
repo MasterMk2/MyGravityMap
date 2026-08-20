@@ -44,8 +44,9 @@ export function App() {
       settings: pb.settings,
       colors: pb.colors,
       activeVisit: pb.activeVisit,
+      cursor: pb.cursor,
     })
-  }, [dataset, pb.trips, pb.rel, pb.currentRel, pb.settings, pb.colors, pb.activeVisit])
+  }, [dataset, pb.trips, pb.rel, pb.currentRel, pb.settings, pb.colors, pb.activeVisit, pb.cursor])
 
   return (
     <div className="app">

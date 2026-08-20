@@ -3,6 +3,13 @@
  * 設計は docs/DESIGN.md を参照。
  */
 
+/**
+ * 取り込みパイプラインの版。
+ * 分割規則や補間規則を変えたらここを上げる。IndexedDB のキャッシュキーに混ぜてあるので、
+ * 古い解析結果が再利用されず自動的に解析し直される。
+ */
+export const PIPELINE_VERSION = 2
+
 /** 交通手段。Google の activity.topCandidate.type をそのまま使う */
 export type TravelMode =
   | 'IN_PASSENGER_VEHICLE'

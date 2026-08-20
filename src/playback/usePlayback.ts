@@ -10,6 +10,7 @@ import {
   rebaseTimes,
 } from '../core/playback'
 import { computeTripColors } from './colors'
+import { positionAt } from './position'
 
 /** 空白とみなす最小の長さ。これ以上あいたら「記録が無い区間」として詰められる */
 const GAP_THRESHOLD_SEC = 6 * 3600
@@ -71,6 +72,8 @@ export function usePlayback(dataset: Dataset | null) {
   const currentTime = timeMap.toReal(pos)
   const currentRel = currentTime - selection.start
   const progress = timeMap.totalSec > 0 ? pos / timeMap.totalSec : 0
+
+  const cursor = useMemo(() => positionAt(trips, rel, currentRel), [trips, rel, currentRel])
 
   const activeVisit = useMemo(
     () => (dataset ? activeVisitAt(dataset.visits, currentTime) : undefined),
@@ -143,5 +146,6 @@ export function usePlayback(dataset: Dataset | null) {
     rel,
     colors,
     activeVisit,
+    cursor,
   }
 }

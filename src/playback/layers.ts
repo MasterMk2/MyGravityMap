@@ -1,7 +1,18 @@
 import type { Layer } from '@deck.gl/core'
 import { PathLayer, ScatterplotLayer } from '@deck.gl/layers'
 import { TripsLayer } from '@deck.gl/geo-layers'
+import { PathStyleExtension } from '@deck.gl/extensions'
+import type { PathStyleExtensionProps } from '@deck.gl/extensions'
 import type { PlaybackSettings, Trip, Visit } from '../core/types'
+import type { Cursor } from './position'
+
+/**
+ * 長距離移動（飛行機など）は記録が飛んでいる区間を大圏コースで補って繋いである。
+ * 実際に通った軌跡ではないので、破線にして「推定」だと分かるようにする。
+ */
+const DASH_EXTENSION = new PathStyleExtension({ dash: true })
+const DASH_INFERRED: [number, number] = [7, 4]
+const DASH_SOLID: [number, number] = [0, 0]
 
 export interface PlaybackLayerInput {
   /** 期間で絞り込んだトリップ（時刻の昇順） */
@@ -15,6 +26,8 @@ export interface PlaybackLayerInput {
   colors: Uint8Array
   /** いま滞在中の訪問（あれば滞在円を出す） */
   activeVisit?: Visit | undefined
+  /** 再生ヘッドの現在位置 */
+  cursor?: Cursor | undefined
   /** 滞在円を出す上限速度。これより速い再生では出さない */
   stayCircleMaxSpeed?: number
 }
@@ -65,7 +78,7 @@ export function buildPlaybackLayers(input: PlaybackLayerInput): Layer[] {
     const done = trips.slice(0, doneCount)
 
     layers.push(
-      new PathLayer<Trip>({
+      new PathLayer<Trip, PathStyleExtensionProps<Trip>>({
         id: 'playback-solid-done',
         data: done,
         positionFormat: 'XY',
@@ -76,6 +89,9 @@ export function buildPlaybackLayers(input: PlaybackLayerInput): Layer[] {
         widthMinPixels: 1,
         capRounded: true,
         jointRounded: true,
+        getDashArray: (t) => (t.isFlight ? DASH_INFERRED : DASH_SOLID),
+        dashJustified: true,
+        extensions: [DASH_EXTENSION],
         ...(parameters ? { parameters } : {}),
         updateTriggers: {
           getColor: [settings.colorBy, settings.trail, alpha, colors],
@@ -153,6 +169,42 @@ export function buildPlaybackLayers(input: PlaybackLayerInput): Layer[] {
         getLineColor: [94, 234, 212, 200],
         lineWidthMinPixels: 1.5,
         updateTriggers: { getPosition: activeVisit.start },
+      }),
+    )
+  }
+
+  // 現在地。止まっている間も消さず、最後に居た場所を指したままにする。
+  const cursor = input.cursor
+  if (cursor) {
+    const data = [cursor]
+    // 外側のぼんやりした光。移動中は大きめ、停止中は小さめ
+    layers.push(
+      new ScatterplotLayer<Cursor>({
+        id: 'playback-cursor-halo',
+        data,
+        getPosition: (c) => [c.lon, c.lat],
+        getRadius: cursor.moving ? 16 : 11,
+        radiusUnits: 'pixels',
+        stroked: false,
+        filled: true,
+        getFillColor: [255, 255, 255, 45],
+        updateTriggers: { getPosition: [cursor.lon, cursor.lat], getRadius: cursor.moving },
+      }),
+    )
+    layers.push(
+      new ScatterplotLayer<Cursor>({
+        id: 'playback-cursor',
+        data,
+        getPosition: (c) => [c.lon, c.lat],
+        getRadius: 5.5,
+        radiusUnits: 'pixels',
+        stroked: true,
+        filled: true,
+        getFillColor: cursor.moving ? [255, 255, 255, 235] : [148, 163, 184, 210],
+        getLineColor: [10, 12, 18, 230],
+        lineWidthUnits: 'pixels',
+        getLineWidth: 1.5,
+        updateTriggers: { getPosition: [cursor.lon, cursor.lat], getFillColor: cursor.moving },
       }),
     )
   }

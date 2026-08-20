@@ -209,6 +209,33 @@ describe('assignModes', () => {
     expect(result.mode).toBe('FLYING')
   })
 
+  it('bridges a long-distance jump even when the implied speed looks slow', () => {
+    // 実データの沖縄往復に相当するケース。機内と前後で記録が飛んでいるため
+    // 1,390km を 51 時間かけて移動したように見え、速度は 27km/h しかない。
+    // 速度条件だけだと取りこぼして線が途切れる。
+    const FIFTY_ONE_HOURS = 51 * 3600
+    const points: TrackPoint[] = [
+      { t: 0, lat: 36.5, lon: 136.6 },
+      { t: FIFTY_ONE_HOURS, lat: 26.5, lon: 127.9 },
+      { t: FIFTY_ONE_HOURS + 600, lat: 26.51, lon: 127.91 },
+    ]
+    const { trips } = buildTrips(points)
+    expect(trips).toHaveLength(1)
+    expect(trips[0].isFlight).toBe(true)
+  })
+
+  it('leaves a moderate jump with a long unrecorded gap split', () => {
+    // 「44 時間空いて 129km」— 間に何をしたか分からないので、繋ぐと嘘になる。
+    const FORTY_FOUR_HOURS = 44 * 3600
+    const points: TrackPoint[] = [
+      { t: 0, lat: 35.4, lon: 136.0 },
+      { t: FORTY_FOUR_HOURS, lat: 36.5, lon: 136.6 },
+    ]
+    const { trips } = buildTrips(points)
+    expect(trips).toHaveLength(2)
+    expect(trips.every((t) => !t.isFlight)).toBe(true)
+  })
+
   it('does not mutate the input trips', () => {
     const points: TrackPoint[] = [
       { t: 0, lat: 35.68, lon: 139.76 },

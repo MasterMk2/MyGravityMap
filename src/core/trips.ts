@@ -9,10 +9,21 @@ import { haversineMeters, greatCircleIntermediate } from './geo'
 export interface BuildTripsOptions {
   /** この秒数を超える間隔で線を切る（既定 1800 = 30 分） */
   gapSec?: number
-  /** これより速く、かつ flightMinKm より遠い点対を飛行区間とみなす（既定 200） */
+  /** これより速く、かつ flightMinKm より遠い点対を長距離移動とみなす（既定 200） */
   flightMinKmh?: number
   /** 既定 100 */
   flightMinKm?: number
+  /**
+   * 速度に関係なく、これより遠い点対は長距離移動とみなす（既定 200km）。
+   *
+   * 速度だけで判定すると、機内で電波が切れて前後の記録も飛んでいる場合に
+   * 実効速度が極端に低く出て取りこぼす。実データでは沖縄への往復が
+   * 1,390km/51時間（27km/h）と 1,406km/68時間（21km/h）になり、
+   * 速度条件では全く引っかからずに線が途切れていた。
+   * 一方 200km を境にすると、長距離移動 5 件だけが選ばれ、
+   * 「44 時間空いて 129km」のような“間に何をしたか分からない”対は除外される。
+   */
+  longJumpMinKm?: number
   /** 飛行区間を橋渡しするとき、どのサブギャップもこの秒数を超えないように中間点を入れる（既定 600） */
   flightMaxSubGapSec?: number
 }
@@ -26,6 +37,7 @@ export interface BuildTripsResult {
 const DEFAULT_GAP_SEC = 1800
 const DEFAULT_FLIGHT_MIN_KMH = 200
 const DEFAULT_FLIGHT_MIN_KM = 100
+const DEFAULT_LONG_JUMP_MIN_KM = 200
 const DEFAULT_FLIGHT_MAX_SUB_GAP_SEC = 600
 /** 飛行区間と判定された対には、どんなに短くても最低これだけの中間点を入れる。 */
 const MIN_FLIGHT_INTERMEDIATE_POINTS = 8
@@ -71,6 +83,7 @@ export function bridgeFlights(
 ): { points: TrackPoint[]; inserted: number; flightRanges: Array<[number, number]> } {
   const flightMinKmh = opts?.flightMinKmh ?? DEFAULT_FLIGHT_MIN_KMH
   const flightMinKm = opts?.flightMinKm ?? DEFAULT_FLIGHT_MIN_KM
+  const longJumpMinKm = opts?.longJumpMinKm ?? DEFAULT_LONG_JUMP_MIN_KM
   const flightMaxSubGapSec = opts?.flightMaxSubGapSec ?? DEFAULT_FLIGHT_MAX_SUB_GAP_SEC
 
   if (points.length === 0) return { points: [], inserted: 0, flightRanges: [] }
@@ -86,7 +99,10 @@ export function bridgeFlights(
     const distKm = haversineMeters(a.lat, a.lon, b.lat, b.lon) / 1000
     const speedKmh = dtSec > 0 ? distKm / (dtSec / 3600) : Infinity
 
-    if (speedKmh > flightMinKmh && distKm > flightMinKm) {
+    const isLongDistance =
+      (speedKmh > flightMinKmh && distKm > flightMinKm) || distKm > longJumpMinKm
+
+    if (isLongDistance) {
       const startIdx = out.length - 1 // a のインデックス（拡張後の配列上）
 
       const neededSegments = Math.max(Math.ceil(dtSec / flightMaxSubGapSec), 1)
