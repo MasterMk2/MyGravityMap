@@ -1,0 +1,27 @@
+.mgm-map-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.mgm-map-canvas__map {
+  position: absolute;
+  inset: 0;
+}
+
+/*
+ * HUD / コントロール用のオーバーレイ。
+ * ラッパー自体はクリックを透過させ、地図のドラッグ操作を妨げない。
+ * 直接の子要素だけをクリック可能に戻す。
+ * maplibre 自身のコントロール（NavigationControl 等）は z-index: 2 の
+ * コーナーコンテナに載るため、HUD がその下に隠れないよう更に上へ重ねる。
+ */
+.mgm-map-canvas__overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.mgm-map-canvas__overlay > * {
+  pointer-events: auto;
+}

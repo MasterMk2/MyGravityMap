@@ -1,0 +1,34 @@
+{
+  "name": "mygravitymap",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Visualize your Google Maps timeline history entirely in the browser",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p tsconfig.app.json && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@deck.gl/mapbox": "^9.3.10",
+    "@streamparser/json": "^0.0.25",
+    "deck.gl": "^9.3.10",
+    "idb": "^8.0.3",
+    "maplibre-gl": "^6.4.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.1.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
+  }
+}

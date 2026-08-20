@@ -1,0 +1,234 @@
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  type ReactNode,
+} from 'react'
+import 'maplibre-gl/dist/maplibre-gl.css'
+import {
+  Map as MapLibreMap,
+  NavigationControl,
+  ScaleControl,
+  AttributionControl,
+} from 'maplibre-gl'
+import type { FitBoundsOptions, FlyToOptions, MapOptions } from 'maplibre-gl'
+import { MapboxOverlay } from '@deck.gl/mapbox'
+import type { Layer } from '@deck.gl/core'
+import { BASEMAPS, ATTRIBUTION } from './basemaps'
+import type { BasemapId } from './basemaps'
+import './MapCanvas.css'
+
+export interface MapCanvasViewState {
+  longitude: number
+  latitude: number
+  zoom: number
+}
+
+export interface MapCanvasInitialViewState {
+  longitude: number
+  latitude: number
+  zoom: number
+  pitch?: number
+  bearing?: number
+}
+
+export interface MapCanvasProps {
+  /** deck.gl layers. re-rendered (via overlay.setProps) whenever this changes */
+  layers: Layer[]
+  /** default 'dark' */
+  basemap?: BasemapId
+  initialViewState?: MapCanvasInitialViewState
+  onViewStateChange?: (v: MapCanvasViewState) => void
+  /** rendered as an absolutely-positioned overlay above the map (for HUD/controls) */
+  children?: ReactNode
+}
+
+/** imperative helpers exposed via ref */
+export interface MapCanvasHandle {
+  flyTo(opts: {
+    longitude: number
+    latitude: number
+    zoom?: number
+    durationMs?: number
+  }): void
+  /** bounds: [west, south, east, north] */
+  fitBounds(bounds: [number, number, number, number], padPx?: number): void
+}
+
+const DEFAULT_VIEW: Required<Pick<MapCanvasInitialViewState, 'longitude' | 'latitude' | 'zoom'>> = {
+  longitude: 137.5,
+  latitude: 37.0,
+  zoom: 4.5,
+}
+
+/**
+ * Adds (or replaces) the attribution control to match the active basemap.
+ * CARTO basemaps must show ATTRIBUTION; 'none' shows no attribution control
+ * at all (and, being sourceless, issues no network requests either).
+ */
+function syncAttribution(
+  map: MapLibreMap,
+  basemap: BasemapId,
+  attributionRef: { current: AttributionControl | null },
+): void {
+  if (attributionRef.current) {
+    map.removeControl(attributionRef.current)
+    attributionRef.current = null
+  }
+  if (basemap !== 'none') {
+    const control = new AttributionControl({
+      compact: false,
+      customAttribution: ATTRIBUTION,
+    })
+    map.addControl(control)
+    attributionRef.current = control
+  }
+}
+
+export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
+  function MapCanvas(props, ref) {
+    const { layers, basemap = 'dark', initialViewState, onViewStateChange, children } = props
+
+    const containerRef = useRef<HTMLDivElement | null>(null)
+    const mapRef = useRef<MapLibreMap | null>(null)
+    const overlayRef = useRef<MapboxOverlay | null>(null)
+    const attributionRef = useRef<AttributionControl | null>(null)
+    /** basemap id that the live map instance currently renders */
+    const appliedBasemapRef = useRef<BasemapId | null>(null)
+
+    // Latest-value refs so the mount effect (empty deps) and the moveend
+    // handler always see current props without needing to be re-registered.
+    const layersRef = useRef(layers)
+    layersRef.current = layers
+    const basemapRef = useRef(basemap)
+    basemapRef.current = basemap
+    const initialViewStateRef = useRef(initialViewState)
+    const onViewStateChangeRef = useRef(onViewStateChange)
+    onViewStateChangeRef.current = onViewStateChange
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        flyTo({ longitude, latitude, zoom, durationMs }) {
+          const map = mapRef.current
+          if (!map) return
+          // Build the options object incrementally: passing an explicit
+          // `undefined` for zoom/duration is not the same as omitting the
+          // key for maplibre's camera option handling, so only set keys
+          // that were actually provided.
+          const opts: FlyToOptions = { center: [longitude, latitude] }
+          if (zoom !== undefined) opts.zoom = zoom
+          if (durationMs !== undefined) opts.duration = durationMs
+          map.flyTo(opts)
+        },
+        fitBounds(bounds, padPx) {
+          const map = mapRef.current
+          if (!map) return
+          const opts: FitBoundsOptions = {}
+          if (padPx !== undefined) opts.padding = padPx
+          map.fitBounds(bounds, opts)
+        },
+      }),
+      [],
+    )
+
+    // Create the map + deck.gl overlay exactly once. Cleanup fully tears
+    // down the map so this survives React 19 StrictMode's dev-mode
+    // mount -> cleanup -> mount without leaking a map instance or throwing.
+    useEffect(() => {
+      const container = containerRef.current
+      if (!container) return
+
+      const initial = initialViewStateRef.current
+      const startBasemap = basemapRef.current
+
+      // Only set pitch/bearing when actually provided -- an explicit
+      // `undefined` is not the same as an omitted key for maplibre's
+      // camera option handling (same reasoning as flyTo/fitBounds below).
+      const mapOptions: MapOptions = {
+        container,
+        style: BASEMAPS[startBasemap].style,
+        center: [initial?.longitude ?? DEFAULT_VIEW.longitude, initial?.latitude ?? DEFAULT_VIEW.latitude],
+        zoom: initial?.zoom ?? DEFAULT_VIEW.zoom,
+        // We manage attribution ourselves so it stays in sync with `basemap`.
+        attributionControl: false,
+      }
+      if (initial?.pitch !== undefined) mapOptions.pitch = initial.pitch
+      if (initial?.bearing !== undefined) mapOptions.bearing = initial.bearing
+
+      const map = new MapLibreMap(mapOptions)
+      mapRef.current = map
+      appliedBasemapRef.current = startBasemap
+
+      map.addControl(new NavigationControl(), 'top-right')
+      map.addControl(new ScaleControl(), 'bottom-left')
+
+      const overlay = new MapboxOverlay({
+        interleaved: false,
+        layers: layersRef.current,
+      })
+      overlayRef.current = overlay
+      map.addControl(overlay)
+
+      syncAttribution(map, startBasemap, attributionRef)
+
+      // Defensive: some maplibre/deck.gl version combos have dropped a
+      // control across setStyle. Re-add the deck.gl overlay if it's
+      // missing once the new style has finished loading.
+      const handleStyleLoad = () => {
+        const currentOverlay = overlayRef.current
+        if (currentOverlay && !map.hasControl(currentOverlay)) {
+          map.addControl(currentOverlay)
+        }
+      }
+      map.on('style.load', handleStyleLoad)
+
+      const handleMove = () => {
+        const center = map.getCenter()
+        onViewStateChangeRef.current?.({
+          longitude: center.lng,
+          latitude: center.lat,
+          zoom: map.getZoom(),
+        })
+      }
+      map.on('move', handleMove)
+
+      return () => {
+        map.off('style.load', handleStyleLoad)
+        map.off('move', handleMove)
+        map.remove()
+        mapRef.current = null
+        overlayRef.current = null
+        attributionRef.current = null
+        appliedBasemapRef.current = null
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once; latest values are read via refs
+    }, [])
+
+    // Push new deck.gl layers into the existing overlay without recreating
+    // the map or the overlay.
+    useEffect(() => {
+      overlayRef.current?.setProps({ layers })
+    }, [layers])
+
+    // Swap the maplibre style in place when `basemap` changes; never
+    // recreate the map itself.
+    useEffect(() => {
+      const map = mapRef.current
+      if (!map) return
+      if (appliedBasemapRef.current === basemap) return
+
+      map.setStyle(BASEMAPS[basemap].style)
+      syncAttribution(map, basemap, attributionRef)
+      appliedBasemapRef.current = basemap
+    }, [basemap])
+
+    return (
+      <div className="mgm-map-canvas">
+        <div ref={containerRef} className="mgm-map-canvas__map" />
+        <div className="mgm-map-canvas__overlay">{children}</div>
+      </div>
+    )
+  },
+)
