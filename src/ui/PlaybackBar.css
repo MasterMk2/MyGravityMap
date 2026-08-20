@@ -1,0 +1,257 @@
+/* --- 再生バー(画面下部にドッキングする想定。位置決めは親側の責務) --- */
+.playbackbar {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.playbackbar * {
+  box-sizing: border-box;
+}
+
+.playbackbar__row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.playbackbar__row--settings {
+  gap: 18px;
+}
+
+.playbackbar__clock {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  white-space: nowrap;
+  min-width: 190px;
+}
+
+.playbackbar__transport {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+
+.playbackbar__iconBtn {
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+  padding: 6px 10px;
+}
+
+.playbackbar__scrub {
+  flex: 1 1 160px;
+  min-width: 140px;
+}
+
+.playbackbar__scrubInput {
+  width: 100%;
+  display: block;
+  accent-color: var(--accent);
+}
+
+.playbackbar__group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.playbackbar__label {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* App.css の .segmented / button は flex:1 で親幅いっぱいに伸びる作りだが、
+   このバーの中では各グループが自身の内容幅だけを取るようにしたい */
+.playbackbar .segmented {
+  flex: 0 0 auto;
+}
+
+.playbackbar .segmented button {
+  flex: 0 0 auto;
+  color: var(--text);
+}
+
+.playbackbar .segmented .is-active {
+  color: var(--accent);
+}
+
+.playbackbar__toggleGroup {
+  gap: 8px;
+}
+
+.playbackbar__toggle {
+  color: var(--text);
+  font-size: 13px;
+  padding: 6px 10px;
+}
+
+.playbackbar__toggle.is-active {
+  background: rgba(94, 234, 212, 0.16);
+  border-color: rgba(94, 234, 212, 0.5);
+  color: var(--accent);
+}
+
+.playbackbar__hint {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.playbackbar__row--period {
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.playbackbar__period {
+  flex: 1 1 320px;
+  min-width: 240px;
+}
+
+.playbackbar__periodHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.playbackbar__periodDate {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.playbackbar__periodLegend {
+  color: var(--muted);
+}
+
+.playbackbar__presets {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding-top: 16px;
+}
+
+.playbackbar__presets button {
+  color: var(--text);
+  font-size: 13px;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+
+/* --- 期間の二重つまみスライダー --- */
+.rangeSlider {
+  position: relative;
+  height: 28px;
+}
+
+.rangeSlider__coverage {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 10px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.rangeSlider__band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--accent);
+}
+
+.rangeSlider__band--warn {
+  background: var(--warn);
+}
+
+.rangeSlider__selection {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 14px;
+  background: rgba(94, 234, 212, 0.14);
+  border-top: 1px solid rgba(94, 234, 212, 0.55);
+  border-bottom: 1px solid rgba(94, 234, 212, 0.55);
+  pointer-events: none;
+}
+
+.rangeSlider__input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: none;
+}
+
+.rangeSlider__input::-webkit-slider-runnable-track {
+  -webkit-appearance: none;
+  background: transparent;
+  height: 28px;
+}
+
+.rangeSlider__input::-moz-range-track {
+  background: transparent;
+  height: 28px;
+  border: none;
+}
+
+.rangeSlider__input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 2px solid var(--accent);
+  cursor: grab;
+}
+
+.rangeSlider__input::-moz-range-thumb {
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 2px solid var(--accent);
+  cursor: grab;
+}
+
+.rangeSlider__input:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.rangeSlider__input:focus-visible::-moz-range-thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@media (max-width: 720px) {
+  .playbackbar__row {
+    gap: 10px;
+  }
+
+  .playbackbar__presets {
+    padding-top: 8px;
+  }
+}

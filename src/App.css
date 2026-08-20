@@ -75,6 +75,14 @@ code {
   background: rgba(255, 255, 255, 0.08);
 }
 
+/* --- 画面下部の再生バー --- */
+.dock-bottom {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+}
+
 /* --- 統計パネル --- */
 .panel {
   position: absolute;

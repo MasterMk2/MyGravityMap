@@ -161,6 +161,32 @@ export type ParseMessage =
   | { type: 'done'; dataset: Dataset }
   | { type: 'error'; message: string }
 
+/** 再生対象の期間（絶対 Unix 秒） */
+export interface TimeWindow {
+  start: Seconds
+  end: Seconds
+}
+
+/** 記録が無い区間 */
+export interface Gap {
+  start: Seconds
+  end: Seconds
+}
+
+/**
+ * 「再生上の時間」と「実際の時刻」の対応。
+ * 空白スキップが ON のとき、記録の無い区間を詰めた圧縮時間軸を作る。
+ * OFF のときは恒等写像（totalSec = 期間の長さ）。
+ */
+export interface TimeMap {
+  /** 圧縮後の総再生秒数（実時間） */
+  totalSec: number
+  /** 圧縮時間 → 実時刻 */
+  toReal(compressed: number): Seconds
+  /** 実時刻 → 圧縮時間 */
+  toCompressed(real: Seconds): number
+}
+
 /** 再生の設定 */
 export interface PlaybackSettings {
   /** 実時間倍率 */
