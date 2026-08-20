@@ -51,6 +51,12 @@ export interface MapCanvasProps {
    * deck.gl は別キャンバスなので軌跡の色はそのまま。地図を落ち着かせて軌跡を目立たせる用途。
    */
   mapFilter?: string
+  /**
+   * 利用者が自分で地図をドラッグ／ズームしたときに呼ばれる。
+   * プログラムからの移動（setCenter など）では呼ばれない。
+   * 追従モードを自動で解除するために使う。
+   */
+  onUserPan?: () => void
 }
 
 /** imperative helpers exposed via ref */
@@ -63,6 +69,11 @@ export interface MapCanvasHandle {
   }): void
   /** bounds: [west, south, east, north] */
   fitBounds(bounds: [number, number, number, number], padPx?: number): void
+  /**
+   * ズームや向きを変えずに中心だけ移す。追従モードで毎フレーム呼ぶため、
+   * アニメーションを挟まない（flyTo だと呼ぶたびに新しい動きが始まって震える）。
+   */
+  setCenter(longitude: number, latitude: number): void
 }
 
 const DEFAULT_VIEW: Required<Pick<MapCanvasInitialViewState, 'longitude' | 'latitude' | 'zoom'>> = {
@@ -105,6 +116,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
       onViewStateChange,
       children,
       mapFilter,
+      onUserPan,
     } = props
 
     const containerRef = useRef<HTMLDivElement | null>(null)
@@ -123,6 +135,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
     const initialViewStateRef = useRef(initialViewState)
     const onViewStateChangeRef = useRef(onViewStateChange)
     onViewStateChangeRef.current = onViewStateChange
+    const onUserPanRef = useRef(onUserPan)
+    onUserPanRef.current = onUserPan
 
     useImperativeHandle(
       ref,
@@ -145,6 +159,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
           const opts: FitBoundsOptions = {}
           if (padPx !== undefined) opts.padding = padPx
           map.fitBounds(bounds, opts)
+        },
+        setCenter(longitude, latitude) {
+          // jumpTo はアニメーションを伴わない。追従モードで毎フレーム呼ぶので、
+          // flyTo/easeTo だと動きが積み重なって震える。
+          mapRef.current?.jumpTo({ center: [longitude, latitude] })
         },
       }),
       [],
@@ -220,9 +239,18 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
       }
       map.on('move', handleMove)
 
+      // originalEvent があるものだけが利用者操作。setCenter などのプログラム移動では付かない。
+      const handleUserPan = (e: { originalEvent?: unknown }) => {
+        if (e.originalEvent) onUserPanRef.current?.()
+      }
+      map.on('dragstart', handleUserPan)
+      map.on('zoomstart', handleUserPan)
+
       return () => {
         map.off('style.load', handleStyleLoad)
         map.off('move', handleMove)
+        map.off('dragstart', handleUserPan)
+        map.off('zoomstart', handleUserPan)
         map.remove()
         mapRef.current = null
         overlayRef.current = null

@@ -35,6 +35,16 @@ export function App() {
 
   const pb = usePlayback(dataset)
 
+  // 追従モード: 現在地を画面の中央に捉え続ける。
+  // jumpTo なのでアニメーションが積み重ならず、毎フレーム呼んでも震えない。
+  const follow = pb.settings.camera === 'follow'
+  const cursorLon = pb.cursor?.lon
+  const cursorLat = pb.cursor?.lat
+  useEffect(() => {
+    if (!follow || cursorLon === undefined || cursorLat === undefined) return
+    mapRef.current?.setCenter(cursorLon, cursorLat)
+  }, [follow, cursorLon, cursorLat])
+
   const layers = useMemo<Layer[]>(() => {
     if (!dataset) return []
     return buildPlaybackLayers({
@@ -50,7 +60,16 @@ export function App() {
 
   return (
     <div className="app">
-      <MapCanvas ref={mapRef} layers={layers} basemap={basemap} mapFilter={mapFilter}>
+      <MapCanvas
+        ref={mapRef}
+        layers={layers}
+        basemap={basemap}
+        mapFilter={mapFilter}
+        // 自分で地図を動かしたら追従を解除する（引っ張り合いにならないように）
+        onUserPan={() => {
+          if (pb.settings.camera === 'follow') pb.changeSettings({ camera: 'fixed' })
+        }}
+      >
         {status !== 'ready' && <FileDrop />}
         {status === 'ready' && dataset && (
           <StatsPanel

@@ -63,6 +63,15 @@ const TRAIL_LENGTH_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 315360000, label: '全期間' },
 ]
 
+const CAMERA_OPTIONS: Array<{
+  value: PlaybackSettings['camera']
+  label: string
+  hint: string
+}> = [
+  { value: 'fixed', label: '固定', hint: '地図を動かさない' },
+  { value: 'follow', label: '追従', hint: '現在地を画面の中央に捉え続ける（地図を動かすと解除）' },
+]
+
 const COLOR_BY_OPTIONS: Array<{ value: PlaybackSettings['colorBy']; label: string }> = [
   { value: 'single', label: '単色' },
   { value: 'mode', label: '交通手段' },
@@ -278,6 +287,24 @@ export function PlaybackBar(props: PlaybackBarProps): JSX.Element {
                 className={settings.trailLengthSec === o.value ? 'is-active' : ''}
                 aria-pressed={settings.trailLengthSec === o.value}
                 onClick={() => onSettingsChange({ trailLengthSec: o.value })}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="playbackbar__group">
+          <span className="playbackbar__label">カメラ</span>
+          <div className="segmented" role="group" aria-label="カメラ">
+            {CAMERA_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                title={o.hint}
+                className={settings.camera === o.value ? 'is-active' : ''}
+                aria-pressed={settings.camera === o.value}
+                onClick={() => onSettingsChange({ camera: o.value })}
               >
                 {o.label}
               </button>
