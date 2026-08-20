@@ -6,7 +6,7 @@
 Sampledata/
 SampleData/
 sampledata/
-data/
+/data/
 location-history*.json
 Records.json
 Semantic*Location*History/
