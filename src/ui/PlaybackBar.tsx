@@ -57,7 +57,9 @@ const TRAIL_LENGTH_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 604800, label: '1週間' },
   { value: 2592000, label: '1か月' },
   { value: 7776000, label: '3か月' },
+  { value: 15552000, label: '6か月' },
   { value: 31536000, label: '1年' },
+  { value: 63072000, label: '2年' },
   { value: 315360000, label: '全期間' },
 ]
 

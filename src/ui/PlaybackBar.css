@@ -76,6 +76,8 @@
    このバーの中では各グループが自身の内容幅だけを取るようにしたい */
 .playbackbar .segmented {
   flex: 0 0 auto;
+  /* 尾の長さは選択肢が多いので、狭いときは折り返す */
+  flex-wrap: wrap;
 }
 
 .playbackbar .segmented button {
