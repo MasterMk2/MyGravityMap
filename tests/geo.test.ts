@@ -26,6 +26,13 @@ describe('parseLatLng', () => {
   it('throws on unparseable input', () => {
     expect(() => parseLatLng('not a coordinate')).toThrow()
   })
+
+  it('throws on a string that merely contains two numbers (e.g. an address)', () => {
+    // 正規表現を前後で固定していないと、こういう文字列から誤った座標が生まれ、
+    // 例外にならないまま地図に載ってしまう
+    expect(() => parseLatLng('1-2-3, 4 号棟')).toThrow()
+    expect(() => parseLatLng('lat 35.1, lon 139.7 付近')).toThrow()
+  })
 })
 
 describe('parseTimeSec / tzOffsetMinFromIso', () => {
