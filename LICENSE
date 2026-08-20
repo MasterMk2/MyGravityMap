@@ -1,0 +1,133 @@
+MyGravityMap ソフトウェア使用許諾条項
+
+Copyright (c) 2026 西野耀史. All rights reserved.
+
+本許諾条項（以下「本条項」といいます）は、MyGravityMap（以下「本ソフトウェア」と
+いいます）の使用条件を定めるものです。本ソフトウェアをインストールし、
+または使用した時点で、あなたは本条項に同意したものとみなされます。
+
+
+第1条（使用許諾）
+
+  著作権者は、本条項に従うことを条件として、あなたに対し、本ソフトウェアを
+  無償かつ台数の制限なく使用する、譲渡不能かつ非独占的な権利を許諾します。
+
+
+第2条（禁止事項）
+
+  次の行為は許諾されません。
+
+  (1) 本ソフトウェアの再配布、頒布、公衆送信、貸与、販売または再許諾
+  (2) 本ソフトウェアの改変、翻案または派生物の作成
+
+
+第3条（第三者ソフトウェア／第2条の例外）
+
+  本ソフトウェアは、第三者が権利を有するソフトウェアを同梱しています。
+  これらについては、それぞれの許諾条項が本条項に優先して適用されます。
+  全文と帰属の詳細は、同梱の THIRD-PARTY-NOTICES.md を参照してください。
+
+  第2条の制限は、これら第三者ソフトウェアが利用者に保障する行為には及びません。
+
+
+第4条（地図データ）
+
+  本ソフトウェアが表示する地図は、利用者が選択した提供元から利用者の端末が
+  直接取得するものであり、本ソフトウェアには含まれません。
+  地図データは © OpenStreetMap contributors（Open Database License）に基づき、
+  タイル配信は CARTO、OpenFreeMap または VersaTiles の各利用条件に従います。
+  これらの利用条件の遵守は利用者の責任において行われます。
+
+
+第5条（利用者のデータ）
+
+  本ソフトウェアは、利用者が読み込んだ位置情報を利用者の端末の外部へ送信しません。
+  解析はブラウザ内で完結し、結果は端末のブラウザ内（IndexedDB）にのみ保存されます。
+  著作権者は利用者の位置情報を収集せず、これにアクセスする手段を持ちません。
+
+
+第6条（権利の帰属）
+
+  本ソフトウェアに関する著作権その他一切の権利は、著作権者に留保されます。
+  本条項は、明示的に許諾された範囲を超えて、いかなる権利もあなたに移転する
+  ものではありません。
+
+
+第7条（無保証）
+
+  本ソフトウェアは「現状有姿」で提供されます。著作権者は、商品性、特定目的への
+  適合性および権利非侵害を含め、明示黙示を問わず一切の保証を行いません。
+
+
+第8条（免責）
+
+  適用される法令が許す最大限の範囲において、著作権者は、本ソフトウェアの使用
+  または使用不能から生じるいかなる損害についても責任を負いません。
+
+
+第9条（準拠法）
+
+  本条項は日本法に準拠して解釈されます。
+
+
+================================================================================
+English translation (for reference only; the Japanese text above is
+authoritative in case of any discrepancy)
+================================================================================
+
+MyGravityMap Software License Terms
+
+Copyright (c) 2026 NishinoAkifumi. All rights reserved.
+
+These terms govern your use of MyGravityMap (the "Software"). By installing or
+using the Software you agree to be bound by them.
+
+1. Grant of use
+   Subject to these terms, the copyright holder grants you a non-transferable,
+   non-exclusive right to use the Software free of charge, on any number of
+   machines.
+
+2. Restrictions
+   You may not:
+   (1) redistribute, publish, transmit to the public, lend, sell or sublicense
+       the Software; or
+   (2) modify, adapt or create derivative works of the Software.
+
+3. Third-party software (exception to Section 2)
+   The Software bundles software owned by third parties. The respective
+   licenses of those components take precedence over these terms. See the
+   bundled THIRD-PARTY-NOTICES.md for the full texts and attribution details.
+
+   The restrictions in Section 2 do not apply to acts that those third-party
+   licenses guarantee to users.
+
+4. Map data
+   Map tiles shown by the Software are fetched by your own device directly from
+   the provider you select; they are not part of the Software. Map data is
+   © OpenStreetMap contributors (Open Database License), and tile delivery is
+   subject to the terms of CARTO, OpenFreeMap or VersaTiles respectively.
+   Compliance with those terms is your responsibility.
+
+5. Your data
+   The Software does not transmit the location data you load outside your
+   device. Processing happens entirely in the browser and results are stored
+   only in your browser (IndexedDB). The copyright holder does not collect your
+   location data and has no means of accessing it.
+
+6. Reservation of rights
+   All copyright and other rights in the Software are reserved by the copyright
+   holder. These terms transfer no rights to you beyond those expressly granted.
+
+7. No warranty
+   The Software is provided "as is". The copyright holder makes no warranty of
+   any kind, express or implied, including merchantability, fitness for a
+   particular purpose and non-infringement.
+
+8. Limitation of liability
+   To the maximum extent permitted by applicable law, the copyright holder
+   shall not be liable for any damages arising from the use of, or inability to
+   use, the Software.
+
+9. Governing law
+   These terms are governed by and construed in accordance with the laws of
+   Japan.

@@ -46,3 +46,16 @@ Google マップのタイムラインを端末からエクスポートした新�
 - エクスポートには自宅・職場の座標や周辺 Wi-Fi の MAC アドレスが含まれます。
   リポジトリ・Issue・スクリーンショットに実データを含めないでください。
 - `rawSignals`（MAC アドレスを含む）は取り込み時に破棄し、保持しません。
+
+## ライセンス
+
+Copyright (c) 2026 西野耀史. All rights reserved.
+
+使用のみを許諾する独自の条項です。再配布・改変は許諾していません。
+詳細は [LICENSE](LICENSE) を参照してください。
+
+同梱している第三者ソフトウェアには、それぞれの許諾条項が優先して適用されます
+（[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)、`npm run notices` で再生成）。
+
+地図データは © OpenStreetMap contributors（ODbL）、タイル配信は
+CARTO / OpenFreeMap / VersaTiles の各利用条件に従います。

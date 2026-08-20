@@ -4,14 +4,16 @@
   "private": true,
   "type": "module",
   "description": "Visualize your Google Maps timeline history entirely in the browser",
-  "license": "MIT",
+  "author": "NishinoAkifumi",
+  "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "notices": "node scripts/gen-notices.mjs"
   },
   "dependencies": {
     "@deck.gl/mapbox": "^9.3.10",
