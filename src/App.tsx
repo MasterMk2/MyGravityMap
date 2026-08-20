@@ -17,6 +17,22 @@ export function App() {
   const [basemap, setBasemap] = useState<BasemapId>('dark')
   /** 地図を沈める量。軌跡を浮かせるための既定値 */
   const [dim, setDim] = useState(0.35)
+  // UI の格納。地図だけを大きく見たいときのため。h キーで両方まとめて切り替える。
+  const [showPanel, setShowPanel] = useState(true)
+  const [showBar, setShowBar] = useState(true)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'h' && e.key !== 'H') return
+      const el = e.target as HTMLElement | null
+      // 入力中の h を奪わない
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
+      const hide = showPanel || showBar
+      setShowPanel(!hide)
+      setShowBar(!hide)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showPanel, showBar])
   const mapRef = useRef<MapCanvasHandle>(null)
 
   // 下の再生バーの高さを測って CSS 変数に流す。
@@ -38,7 +54,7 @@ export function App() {
     })
     ro.observe(el)
     return () => ro.disconnect()
-  }, [status, dataset])
+  }, [status, dataset, showBar])
 
   // 明るさと彩度を同時に落とす。deck.gl は別キャンバスなので軌跡の色は変わらない。
   const mapFilter =
@@ -163,8 +179,18 @@ export function App() {
         }}
       >
         {status !== 'ready' && <FileDrop />}
-        {status === 'ready' && dataset && (
+        {status === 'ready' && dataset && !showPanel && (
+          <button
+            className="ui-reveal ui-reveal--left"
+            onClick={() => setShowPanel(true)}
+            title="情報パネルを開く（h キーでまとめて切り替え）"
+          >
+            ☰
+          </button>
+        )}
+        {status === 'ready' && dataset && showPanel && (
           <StatsPanel
+            onCollapse={() => setShowPanel(false)}
             dataset={dataset}
             basemap={basemap}
             onBasemapChange={setBasemap}
@@ -177,8 +203,25 @@ export function App() {
             visitAvailable={visitAvailable}
           />
         )}
-        {status === 'ready' && dataset && (
+        {status === 'ready' && dataset && !showBar && (
+          <button
+            className="ui-reveal ui-reveal--bottom"
+            onClick={() => setShowBar(true)}
+            title="再生バーを開く（h キーでまとめて切り替え）"
+          >
+            ▲ 再生
+          </button>
+        )}
+        {status === 'ready' && dataset && showBar && (
           <div className="dock-bottom" ref={dockRef}>
+            <button
+              className="dock-bottom__collapse"
+              onClick={() => setShowBar(false)}
+              title="再生バーを閉じる"
+              aria-label="再生バーを閉じる"
+            >
+              ▼
+            </button>
             <PlaybackBar
               bounds={pb.bounds}
               window={pb.selection}

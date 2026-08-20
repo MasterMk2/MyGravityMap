@@ -4,6 +4,7 @@ import type { BasemapId } from '../map/basemaps'
 import { BASEMAPS, BASEMAP_ORDER } from '../map/basemaps'
 import { useAppStore } from '../store/useAppStore'
 import { GravityControls } from './GravityControls'
+import { LicenseLinks } from './About'
 import type { GravitySettings } from '../gravity/layers'
 import type { WeightedPoints } from '../gravity/weights'
 
@@ -19,6 +20,8 @@ interface Props {
   onGravityChange: (patch: Partial<GravitySettings>) => void
   gravityPoints: WeightedPoints
   visitAvailable: boolean
+  /** パネルを畳む */
+  onCollapse: () => void
 }
 
 const nf = new Intl.NumberFormat('ja-JP')
@@ -46,6 +49,7 @@ export function StatsPanel({
   onGravityChange,
   gravityPoints,
   visitAvailable,
+  onCollapse,
 }: Props) {
   const reset = useAppStore((s) => s.reset)
   const fromCache = useAppStore((s) => s.fromCache)
@@ -56,7 +60,12 @@ export function StatsPanel({
     <div className="panel">
       <div className="panel__head">
         <strong>{dataset.fileName}</strong>
-        <button onClick={reset}>別のファイル</button>
+        <span className="panel__headBtns">
+          <button onClick={reset}>別のファイル</button>
+          <button onClick={onCollapse} title="パネルを畳む（h キーでまとめて切り替え）" aria-label="パネルを畳む">
+            ✕
+          </button>
+        </span>
       </div>
 
       <div className="panel__tabs">
@@ -187,6 +196,8 @@ export function StatsPanel({
             aria-label="地図の明るさを下げて軌跡を目立たせる"
           />
         </label>
+
+        <LicenseLinks compact />
       </div>
       </div>
     </div>

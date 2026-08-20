@@ -362,3 +362,142 @@ code {
 .warn {
   color: var(--warn);
 }
+
+/* --- UI の格納 --- */
+.panel__headBtns {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+.panel__headBtns button {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+/* 畳んだあと呼び戻すための小さなボタン */
+.ui-reveal {
+  position: absolute;
+  z-index: 4;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.ui-reveal--left {
+  top: 12px;
+  left: 12px;
+}
+
+.ui-reveal--bottom {
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.dock-bottom__collapse {
+  position: absolute;
+  top: -12px;
+  right: 8px;
+  z-index: 5;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  border-radius: 6px;
+}
+
+/* --- プライバシー / 取り出し方 / ライセンス --- */
+.privacy {
+  margin-top: 18px;
+  padding: 12px 14px;
+  text-align: left;
+  background: rgba(94, 234, 212, 0.06);
+  border: 1px solid rgba(94, 234, 212, 0.28);
+  border-radius: 8px;
+}
+
+.privacy__title {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.privacy__list {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--muted);
+}
+
+.privacy__list b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.howto {
+  margin-top: 12px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.howto > summary {
+  cursor: pointer;
+  padding: 6px 0;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.howto__body {
+  padding: 4px 2px 0;
+  line-height: 1.75;
+}
+
+.howto__body ol {
+  margin: 6px 0;
+  padding-left: 1.3em;
+}
+
+.howto__note {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.licenses {
+  margin: 16px 0 0;
+  font-size: 11px;
+  line-height: 1.8;
+  color: var(--muted);
+}
+
+.licenses a {
+  color: var(--accent);
+}
+
+.licenses--compact {
+  margin: 4px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  line-height: 1.7;
+}
+
+.license-text {
+  max-height: 220px;
+  overflow: auto;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  color: var(--muted);
+}

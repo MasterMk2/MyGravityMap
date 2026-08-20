@@ -66,6 +66,19 @@ const DENSIFY_MAX_KMH = 200
 const MAX_STEPS_PER_SEGMENT = 512
 
 /**
+ * 飛行区間のうち、この距離を超える区間は重力マップに載せない。
+ *
+ * 長距離移動は記録が飛んだところを大圏コースで補ってあるが、それは
+ * 「そこに居た」わけではなく「その上空を通った」だけ。塗ると海の上や
+ * 他人の街に光の帯ができる。実際、欧州便は 600 秒ごとの補間点が
+ * 113km 間隔で並ぶため、地図上に点線として出ていた。
+ *
+ * 同じ飛行トリップでも空港周辺の実際の記録は点の間隔が短いので、
+ * 距離でしきい値を切れば残せる。
+ */
+const FLIGHT_SEGMENT_MIN_METERS = 2000
+
+/**
  * 軌跡の点を「次の点までの秒数」で重み付けし、区間の途中も埋める。
  *
  * 重みの単位は秒のまま。区間を n 個に刻んだら、その区間の秒数も n 等分するので、
@@ -105,7 +118,11 @@ export function trackWeights(trips: Trip[], w: TimeWindow): WeightedPoints {
       const meters = haversineMeters(lat, lon, lat2, lon2)
       const kmh = dt > 0 ? meters / 1000 / (dt / 3600) : 0
 
-      if (meters <= DENSIFY_STEP_METERS || kmh > DENSIFY_MAX_KMH) {
+      // 上空を通っただけの区間は載せない（点線として地図に出てしまうため）
+      if (trip.isFlight && meters > FLIGHT_SEGMENT_MIN_METERS) continue
+      if (kmh > DENSIFY_MAX_KMH) continue
+
+      if (meters <= DENSIFY_STEP_METERS) {
         push(lon, lat, dt)
         continue
       }

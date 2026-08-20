@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
+import { HowToExport, LicenseLinks, LicenseText, PrivacyNote } from './About'
 
 export function FileDrop() {
   const { status, phase, progress, error, loadFile, reset } = useAppStore()
@@ -33,8 +34,9 @@ export function FileDrop() {
       <div className="filedrop__card">
         <h1>MyGravityMap</h1>
         <p className="filedrop__lead">
-          Google マップのタイムライン（<code>location-history.json</code>）を
-          ここにドロップするか、下のボタンから選んでください。
+          Google マップのタイムライン履歴から、自分がどこに引き寄せられて生きてきたかを
+          可視化します。<br />
+          <code>location-history.json</code> をここにドロップするか、下のボタンから選んでください。
         </p>
 
         {!busy && (
@@ -68,10 +70,10 @@ export function FileDrop() {
           </div>
         )}
 
-        <p className="filedrop__privacy">
-          ファイルはこの端末のブラウザ内だけで処理されます。どこにも送信しません。
-          Wi-Fi の MAC アドレスを含む <code>rawSignals</code> は読み飛ばして保存しません。
-        </p>
+        <PrivacyNote />
+        <HowToExport />
+        <LicenseText />
+        <LicenseLinks />
       </div>
     </div>
   )

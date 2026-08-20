@@ -31,6 +31,15 @@ const SOURCES: Array<{ value: GravitySource; label: string; hint: string }> = [
 
 const RADII = [100, 250, 500, 1000]
 
+/*
+ * 「弱い場所の強調」0〜10 と、内部で使う対数のガンマの対応。
+ * ガンマは小さいほど値の広がりが縮む＝弱い側が持ち上がるので、向きが逆になる。
+ */
+const GAMMA_MAX = 1.4
+const GAMMA_STEP = 0.11
+const emphasisToGamma = (v: number) => GAMMA_MAX - v * GAMMA_STEP
+const gammaToEmphasis = (g: number) => Math.round((GAMMA_MAX - g) / GAMMA_STEP)
+
 const nf = new Intl.NumberFormat('ja-JP')
 
 function hours(sec: number): string {
@@ -40,6 +49,7 @@ function hours(sec: number): string {
 
 export function GravityControls({ settings, onChange, points, visitAvailable }: Props) {
   const on = settings.mode !== 'off'
+  const emphasis = gammaToEmphasis(settings.contrast)
 
   return (
     <div className="gravity">
@@ -98,18 +108,20 @@ export function GravityControls({ settings, onChange, points, visitAvailable }: 
             </div>
           </div>
 
-          <label className="gravity__slider" title="小さいほど、たまにしか行かない場所も持ち上がる">
+          {/* 内部では対数のガンマだが、スライダーは「上げるほど効く」向きで見せる。
+              ガンマは小さいほど強調が効くので、そのまま出すと直感と逆になる。 */}
+          <label className="gravity__slider" title="上げるほど、たまにしか行かない場所も見えるようになる">
             <span>
-              コントラスト <em>{settings.contrast.toFixed(1)}</em>
+              弱い場所の強調 <em>{emphasis}</em>
             </span>
             <input
               type="range"
-              min={0.3}
-              max={1.5}
-              step={0.1}
-              value={settings.contrast}
-              onChange={(e) => onChange({ contrast: Number(e.target.value) })}
-              aria-label="コントラスト。小さいほど弱い場所が持ち上がる"
+              min={0}
+              max={10}
+              step={1}
+              value={emphasis}
+              onChange={(e) => onChange({ contrast: emphasisToGamma(Number(e.target.value)) })}
+              aria-label="弱い場所の強調。上げるほど、たまにしか行かない場所も見えるようになる"
             />
           </label>
 

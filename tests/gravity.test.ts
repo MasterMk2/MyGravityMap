@@ -57,11 +57,27 @@ describe('trackWeights', () => {
     expect(Math.max(...lons)).toBeCloseTo(139.8, 3)
   })
 
-  it('速すぎる区間は埋めない（飛行機の空の上を塗らないため）', () => {
-    // 約 900km を 1 時間（時速 900km）
+  it('速すぎる区間は載せない（上空を通っただけなので）', () => {
+    // 約 900km を 1 時間（時速 900km）。始点は落ち、終点だけが 60 秒で残る
     const t = trip([139.7, 35.1, 149.7, 35.1], [0, 3600])
     const w = trackWeights([t], WINDOW)
-    expect(w.count).toBe(2)
+    expect(w.count).toBe(1)
+    expect(w.positions[0]).toBeCloseTo(149.7, 3)
+  })
+
+  it('飛行トリップの長い区間は載せない（大圏補間が点線として出るため）', () => {
+    // 補間済みの飛行トリップを模す。1 区間 100km を 600 秒（時速 600km）
+    const t: Trip = {
+      coords: new Float64Array([139.7, 35.1, 140.8, 35.1, 141.9, 35.1]),
+      times: new Int32Array([0, 600, 1200]),
+      tStart: 0,
+      tEnd: 1200,
+      mode: 'FLYING',
+      isFlight: true,
+    }
+    const w = trackWeights([t], WINDOW)
+    // 最後の点だけが残る
+    expect(w.count).toBe(1)
   })
 
   it('間隔が長すぎる区間は 30 分で頭打ちにする', () => {

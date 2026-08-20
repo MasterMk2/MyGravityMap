@@ -279,6 +279,15 @@ async function parseSource(source: ParseSource, fileHash: string): Promise<Datas
     // その後の end() は「既に終了済み」で throw するので無視してよい。
   }
 
+  if (stats.segments === 0) {
+    // 形式違いのファイルを黙って「0 件」で開くと、利用者は原因が分からない。
+    throw new Error(
+      'このファイルには semanticSegments が見つかりませんでした。' +
+        'Google マップアプリから書き出した新しい形式のタイムライン（location-history.json / タイムライン.json）を選んでください。' +
+        'Google データエクスポート（Takeout）の古い形式（Records.json や「セマンティック ロケーション履歴」フォルダ）にはまだ対応していません。',
+    )
+  }
+
   post({ type: 'progress', phase: '軌跡を組み立て中', bytesRead: total, bytesTotal: total })
 
   const built = buildTrips(points)
