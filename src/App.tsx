@@ -19,6 +19,27 @@ export function App() {
   const [dim, setDim] = useState(0.35)
   const mapRef = useRef<MapCanvasHandle>(null)
 
+  // 下の再生バーの高さを測って CSS 変数に流す。
+  // バーは中身に応じて折り返して高さが変わるので、決め打ちの余白だと
+  // 左パネルが潜り込んだり無駄に短くなったりする。
+  const dockRef = useRef<HTMLDivElement>(null)
+  const [dockHeight, setDockHeight] = useState(0)
+  useEffect(() => {
+    const el = dockRef.current
+    if (!el) {
+      setDockHeight(0)
+      return
+    }
+    // ResizeObserver は環境によって初回が来ないことがあるので、まず一度測る
+    setDockHeight(el.getBoundingClientRect().height)
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height
+      if (h !== undefined) setDockHeight(h)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [status, dataset])
+
   // 明るさと彩度を同時に落とす。deck.gl は別キャンバスなので軌跡の色は変わらない。
   const mapFilter =
     dim > 0 ? `brightness(${(1 - dim * 0.75).toFixed(2)}) saturate(${(1 - dim * 0.6).toFixed(2)})` : ''
@@ -55,6 +76,15 @@ export function App() {
     [dataset, pb.selection],
   )
 
+  // 3D の柱は真上から見ると高さが分からないので、六角柱を出したら地図を傾ける。
+  // 既に傾けてある場合は触らない（利用者の視点を奪わないため）。
+  const hexOn = gravity.mode === 'hex' || gravity.mode === 'both'
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (hexOn && map.getPitch() < 5) map.setPitch(50)
+  }, [hexOn])
+
   // 追従モード: 現在地を画面の中央に捉え続ける。
   // jumpTo なのでアニメーションが積み重ならず、毎フレーム呼んでも震えない。
   const follow = pb.settings.camera === 'follow'
@@ -90,7 +120,7 @@ export function App() {
   }, [dataset, gravity, gravityPoints, pb.trips, pb.rel, pb.currentRel, pb.settings, pb.colors, pb.activeVisit, pb.cursor])
 
   return (
-    <div className="app">
+    <div className="app" style={{ ['--dock-h' as string]: `${dockHeight}px` } as React.CSSProperties}>
       <MapCanvas
         ref={mapRef}
         layers={layers}
@@ -117,7 +147,7 @@ export function App() {
           />
         )}
         {status === 'ready' && dataset && (
-          <div className="dock-bottom">
+          <div className="dock-bottom" ref={dockRef}>
             <PlaybackBar
               bounds={pb.bounds}
               window={pb.selection}

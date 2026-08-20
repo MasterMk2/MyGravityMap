@@ -48,17 +48,21 @@ const COLOR_RANGE: Array<[number, number, number]> = [
 ]
 
 /**
- * deck.gl の集計レイヤーにはバイナリ属性で渡す。
- * 実データでは軌跡だけで 118,405 点あり、1 点ずつオブジェクトにすると
- * 生成にも GC にも無駄が出る。
+ * データは「添字の配列」として渡し、座標も重みも添字で引く。
+ *
+ * 実データでは軌跡だけで 11 万点あるので 1 点ずつオブジェクトを作りたくない。
+ * かといってバイナリ属性（data.attributes）で渡すと HexagonLayer の CPU 集計が
+ * 座標を拾えず、柱が 1 本も出なかった。添字配列なら軽さと確実さの両方が取れる。
  */
-function binaryData(points: WeightedPoints) {
-  return {
-    length: points.count,
-    attributes: {
-      getPosition: { value: points.positions, size: 2 },
-    },
-  }
+const indexCache = new WeakMap<Float32Array, number[]>()
+
+function indexData(points: WeightedPoints): number[] {
+  const cached = indexCache.get(points.positions)
+  if (cached && cached.length === points.count) return cached
+  const arr = new Array<number>(points.count)
+  for (let i = 0; i < points.count; i++) arr[i] = i
+  indexCache.set(points.positions, arr)
+  return arr
 }
 
 export function buildGravityLayers(input: GravityLayerInput): Layer[] {
@@ -66,15 +70,19 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
   if (mode === 'off' || points.count === 0) return []
 
   const layers: Layer[] = []
-  const data = binaryData(points)
-  const weightOf = (_: unknown, info: { index: number }) => points.weights[info.index] ?? 0
+  const data = indexData(points)
+  const positionOf = (i: number): [number, number] => [
+    points.positions[i * 2] ?? 0,
+    points.positions[i * 2 + 1] ?? 0,
+  ]
+  const weightOf = (i: number) => points.weights[i] ?? 0
 
   if (mode === 'heat' || mode === 'both') {
     layers.push(
-      new HeatmapLayer({
+      new HeatmapLayer<number>({
         id: 'gravity-heat',
         data,
-        getPosition: (d: unknown) => d as unknown as [number, number],
+        getPosition: positionOf,
         getWeight: weightOf,
         aggregation: 'SUM',
         radiusPixels: 34,
@@ -90,19 +98,27 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
 
   if (mode === 'hex' || mode === 'both') {
     layers.push(
-      new HexagonLayer({
+      new HexagonLayer<number>({
         id: 'gravity-hex',
         data,
-        getPosition: (d: unknown) => d as unknown as [number, number],
+        getPosition: positionOf,
         getColorWeight: weightOf,
         getElevationWeight: weightOf,
         colorAggregation: 'SUM',
         elevationAggregation: 'SUM',
         radius: radiusMeters,
         extruded: true,
-        // 滞在時間の分布は自宅が突出するので、対数的に潰さないと
-        // ほかの柱が地面に張り付いて見えなくなる
-        elevationScale: 0.06 * intensity,
+        /*
+         * HexagonLayer は集計値をまず elevationRange（既定 [0, 1000] メートル）に
+         * 写してから elevationScale を掛ける。つまり最も高い柱の高さは
+         * 1000 × elevationScale メートルであって、滞在秒数そのものではない。
+         * ここを取り違えて 0.06 を指定していたため、最大でも 60m しかなく
+         * どのズームでもほぼ見えなかった。
+         *
+         * 柱の太さ（radius）に対して見合う高さになるよう、半径基準で決める。
+         * 250m 粒度なら最大 2.5km、1km 粒度なら最大 10km。
+         */
+        elevationScale: (radiusMeters * 10 * intensity) / 1000,
         elevationLowerPercentile: 0,
         elevationUpperPercentile: 99,
         upperPercentile: 99,

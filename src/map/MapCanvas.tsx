@@ -74,6 +74,9 @@ export interface MapCanvasHandle {
    * アニメーションを挟まない（flyTo だと呼ぶたびに新しい動きが始まって震える）。
    */
   setCenter(longitude: number, latitude: number): void
+  /** 地図の傾き（度）。3D の柱は真上から見ると高さが分からないため使う */
+  setPitch(degrees: number, durationMs?: number): void
+  getPitch(): number
 }
 
 const DEFAULT_VIEW: Required<Pick<MapCanvasInitialViewState, 'longitude' | 'latitude' | 'zoom'>> = {
@@ -164,6 +167,12 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
           // jumpTo はアニメーションを伴わない。追従モードで毎フレーム呼ぶので、
           // flyTo/easeTo だと動きが積み重なって震える。
           mapRef.current?.jumpTo({ center: [longitude, latitude] })
+        },
+        setPitch(degrees, durationMs) {
+          mapRef.current?.easeTo({ pitch: degrees, duration: durationMs ?? 600 })
+        },
+        getPitch() {
+          return mapRef.current?.getPitch() ?? 0
         },
       }),
       [],

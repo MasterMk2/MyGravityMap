@@ -71,6 +71,9 @@ export function StatsPanel({
         ))}
       </div>
 
+      {/* タブの中身と設定をまとめてスクロールさせる。下の再生バーに潜り込まないよう、
+          パネル自体の高さは App 側で再生バーの実測高さぶん詰めている */}
+      <div className="panel__body">
       {tab === 'summary' && (
         <dl className="kv">
           <dt>期間</dt>
@@ -184,6 +187,7 @@ export function StatsPanel({
             aria-label="地図の明るさを下げて軌跡を目立たせる"
           />
         </label>
+      </div>
       </div>
     </div>
   )

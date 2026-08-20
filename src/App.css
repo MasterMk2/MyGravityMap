@@ -84,12 +84,13 @@ code {
 }
 
 /* --- 統計パネル --- */
+/* 下の再生バーの実測高さ（--dock-h）ぶん詰めて、重ならないようにする */
 .panel {
   position: absolute;
   top: 12px;
   left: 12px;
   width: 320px;
-  max-height: calc(100% - 24px);
+  max-height: calc(100% - 36px - var(--dock-h, 0px));
   display: flex;
   flex-direction: column;
   padding: 12px 14px;
@@ -111,6 +112,13 @@ code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.panel__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .panel__tabs {
@@ -281,7 +289,6 @@ code {
   grid-template-columns: auto 1fr;
   gap: 2px 12px;
   margin: 0;
-  overflow-y: auto;
   font-variant-numeric: tabular-nums;
 }
 
@@ -298,7 +305,6 @@ code {
   margin: 0;
   padding: 0;
   list-style: none;
-  overflow-y: auto;
 }
 
 .places__row {
