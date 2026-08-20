@@ -12,6 +12,12 @@ interface Props {
 
 const nf = new Intl.NumberFormat('ja-JP')
 
+const BASEMAP_OPTIONS: Array<{ id: BasemapId; label: string; hint: string }> = [
+  { id: 'dark', label: 'ダーク', hint: 'CARTO dark matter' },
+  { id: 'light', label: 'ライト', hint: 'CARTO positron' },
+  { id: 'none', label: 'なし', hint: '地図タイルを取得しない（通信ゼロ）' },
+]
+
 function ymd(sec: number): string {
   const d = new Date(sec * 1000)
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(
@@ -122,14 +128,22 @@ export function StatsPanel({ dataset, basemap, onBasemapChange, onFocus }: Props
       )}
 
       <div className="panel__foot">
-        <label>
-          背景
-          <select value={basemap} onChange={(e) => onBasemapChange(e.target.value as BasemapId)}>
-            <option value="dark">ダーク</option>
-            <option value="light">ライト</option>
-            <option value="none">なし（通信ゼロ）</option>
-          </select>
-        </label>
+        {/* ネイティブの select はドロップダウン内の文字色を OS 側が決めてしまい、
+            暗いテーマだと白背景に白文字になって読めない。自前のボタンにする。 */}
+        <span className="panel__footLabel">背景</span>
+        <div className="segmented" role="group" aria-label="背景の地図">
+          {BASEMAP_OPTIONS.map((o) => (
+            <button
+              key={o.id}
+              className={basemap === o.id ? 'is-active' : ''}
+              aria-pressed={basemap === o.id}
+              title={o.hint}
+              onClick={() => onBasemapChange(o.id)}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   )

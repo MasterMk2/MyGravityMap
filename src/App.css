@@ -123,6 +123,9 @@ code {
 }
 
 .panel__foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
@@ -130,13 +133,30 @@ code {
   color: var(--muted);
 }
 
-.panel__foot select {
-  margin-left: 8px;
-  background: rgba(255, 255, 255, 0.06);
+.panel__footLabel {
+  flex: none;
+}
+
+/* 3 択のセグメントコントロール。ネイティブの select と違い、
+   選択肢の文字色を OS のテーマに奪われない。 */
+.segmented {
+  display: flex;
+  flex: 1;
+  gap: 4px;
+}
+
+.segmented button {
+  flex: 1;
+  padding: 4px 6px;
+  font-size: 13px;
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 3px 6px;
+  white-space: nowrap;
+}
+
+.segmented .is-active {
+  background: rgba(94, 234, 212, 0.16);
+  border-color: rgba(94, 234, 212, 0.5);
+  color: var(--accent);
 }
 
 .kv {
