@@ -1,0 +1,89 @@
+<!doctype html>
+<!--
+  切り分け用の最小ページ（開発時のみ）。
+  MapLibre だけを素で動かす。React も deck.gl も使わない。
+  ここで地図が出るなら deck.gl との組み合わせが原因、
+  出ないなら環境側（WebGL / ネットワーク / 合成）の問題。
+-->
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>maptest — MapLibre 単体</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #101318;
+        color: #e8eaf0;
+        font-family: system-ui, sans-serif;
+      }
+      #map {
+        position: absolute;
+        inset: 0;
+      }
+      #log {
+        position: absolute;
+        z-index: 10;
+        top: 8px;
+        left: 8px;
+        max-width: 90vw;
+        padding: 8px 10px;
+        background: rgba(10, 12, 16, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 8px;
+        font-size: 13px;
+        line-height: 1.7;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <pre id="log">起動中…</pre>
+    <script type="module">
+      import { Map as MapLibreMap } from 'maplibre-gl'
+      import 'maplibre-gl/dist/maplibre-gl.css'
+
+      const log = document.getElementById('log')
+      const lines = []
+      const say = (s) => {
+        lines.push(s)
+        log.textContent = lines.join('\n')
+      }
+
+      // WebGL が使えるか
+      const probe = document.createElement('canvas')
+      const gl = probe.getContext('webgl2') || probe.getContext('webgl')
+      say(`WebGL: ${gl ? gl.getParameter(gl.VERSION) : '使えません（これが原因）'}`)
+      if (gl) {
+        const dbg = gl.getExtension('WEBGL_debug_renderer_info')
+        if (dbg) say(`GPU: ${gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)}`)
+      }
+
+      // requestAnimationFrame が動くか
+      let frames = 0
+      const t0 = performance.now()
+      const tick = () => {
+        frames++
+        if (performance.now() - t0 < 800) requestAnimationFrame(tick)
+        else say(`requestAnimationFrame: 800ms で ${frames} フレーム${frames === 0 ? '（描画されない環境です）' : ''}`)
+      }
+      requestAnimationFrame(tick)
+
+      const map = new MapLibreMap({
+        container: 'map',
+        style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+        center: [137.5, 37.0],
+        zoom: 4.5,
+      })
+      window.__testmap = map
+
+      map.on('load', () => say('map load: OK（ここまで来れば地図は出ているはず）'))
+      map.on('styledata', () => say(`styledata: isStyleLoaded=${map.isStyleLoaded()}`))
+      map.on('error', (e) => say(`map error: ${e.error?.message ?? e}`))
+      setTimeout(() => say(`5 秒後: isStyleLoaded=${map.isStyleLoaded()} loaded=${map.loaded()}`), 5000)
+    </script>
+  </body>
+</html>
