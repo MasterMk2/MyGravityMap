@@ -130,6 +130,19 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
         radius: radiusMeters,
         extruded: true,
         /*
+         * GPU 集計を使わない。
+         *
+         * HexagonLayer の既定は gpuAggregation: true で、これは点の広がりから
+         * 格子テクスチャを作る。この履歴は日本と欧州にまたがっていて
+         * 経度で 130 度以上の広がりがあるため、250m 粒度だと格子が巨大になりすぎ、
+         * 柱が 1 本も出ない（例外も警告も出ない）。
+         * 実際、日本国内に収まる「滞在」では出て、欧州を含む「軌跡」では出なかった。
+         *
+         * CPU 集計はハッシュで binning するので広がりに影響されない。
+         * 点数は最大でも 11 万程度なので CPU で十分間に合う。
+         */
+        gpuAggregation: false,
+        /*
          * HexagonLayer は集計値をまず elevationRange（既定 [0, 1000] メートル）に
          * 写してから elevationScale を掛ける。つまり最も高い柱の高さは
          * 1000 × elevationScale メートルであって、滞在秒数そのものではない。
