@@ -42,10 +42,10 @@ export interface GravityLayerInput {
  */
 const HEAT_COLORS: Array<[number, number, number, number]> = [
   [21, 101, 138, 0],
-  [26, 152, 160, 80],
-  [45, 195, 152, 145],
-  [130, 222, 128, 195],
-  [214, 240, 130, 228],
+  [24, 130, 155, 38],
+  [30, 170, 158, 100],
+  [95, 210, 140, 160],
+  [200, 236, 132, 212],
   [255, 255, 245, 255],
 ]
 
@@ -144,18 +144,26 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
         ],
         getWeight: (i: number) => heat.weights[i] ?? 0,
         /*
-         * MEAN であって SUM ではない。
-         * 事前に等面積の格子へまとめてあるので 1 マス 1 点になっており、
-         * SUM だと画素に入るマスの数（＝ズーム）で明るさが変わってしまう。
-         * MEAN なら「そのあたりの 1 マスあたりの滞在時間」を見ることになり、
-         * ズームを変えても意味が変わらない。
+         * SUM を使う。MEAN にすると輪郭が硬くなる。
+         *
+         * HeatmapLayer は 1 点を放射状に減衰する円として重みテクスチャへ描く。
+         * SUM ならその減衰がそのまま出るので、端は自然にゼロへ向かう。
+         * MEAN は「重みの合計 ÷ 寄与数」なので、分子も分母も同じように減衰する
+         * ぶん円の中でほぼ一定になり、円の縁で急に値が消える。
+         * 実際これで塗った所と地図の境目が切り絵のようにくっきり出ていた。
+         *
+         * SUM で心配なのは点の密度の偏りだが、それは事前に等面積の格子へ
+         * まとめて 1 マス 1 点にしてあるので、ここでは起きない。
          */
-        aggregation: 'MEAN',
-        // 44px だと隣の山と溶け合って全体が 1 枚の靄になっていた
-        radiusPixels: 18,
+        aggregation: 'SUM',
+        radiusPixels: 26,
         intensity,
-        // 対数にしてあるので、低い側も拾えるよう既定（0.05）より下げる
-        threshold: 0.01,
+        /*
+         * threshold 未満の画素は描かれない＝ここが輪郭になる。
+         * 色の側は最も低い段を不透明度 0 にしてあるので、
+         * 切り取りは「見えなくなった後」で起きてほしい。既定 0.05 に対してかなり低くする。
+         */
+        threshold: 0.002,
         colorRange: HEAT_COLORS,
         opacity,
         updateTriggers: { getPosition: heat.positions, getWeight: heat.weights },
