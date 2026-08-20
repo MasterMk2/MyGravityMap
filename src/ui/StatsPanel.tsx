@@ -3,6 +3,9 @@ import type { Dataset } from '../core/types'
 import type { BasemapId } from '../map/basemaps'
 import { BASEMAPS, BASEMAP_ORDER } from '../map/basemaps'
 import { useAppStore } from '../store/useAppStore'
+import { GravityControls } from './GravityControls'
+import type { GravitySettings } from '../gravity/layers'
+import type { WeightedPoints } from '../gravity/weights'
 
 interface Props {
   dataset: Dataset
@@ -12,6 +15,10 @@ interface Props {
   dim: number
   onDimChange: (v: number) => void
   onFocus: (lon: number, lat: number) => void
+  gravity: GravitySettings
+  onGravityChange: (patch: Partial<GravitySettings>) => void
+  gravityPoints: WeightedPoints
+  visitAvailable: boolean
 }
 
 const nf = new Intl.NumberFormat('ja-JP')
@@ -35,6 +42,10 @@ export function StatsPanel({
   dim,
   onDimChange,
   onFocus,
+  gravity,
+  onGravityChange,
+  gravityPoints,
+  visitAvailable,
 }: Props) {
   const reset = useAppStore((s) => s.reset)
   const fromCache = useAppStore((s) => s.fromCache)
@@ -134,6 +145,13 @@ export function StatsPanel({
       )}
 
       <div className="panel__foot">
+        <GravityControls
+          settings={gravity}
+          onChange={onGravityChange}
+          points={gravityPoints}
+          visitAvailable={visitAvailable}
+        />
+
         {/* ネイティブの select はドロップダウン内の文字色を OS 側が決めてしまい、
             暗いテーマだと白背景に白文字になって読めない。自前のボタンにする。 */}
         <div className="basemaps">

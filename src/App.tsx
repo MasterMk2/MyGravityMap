@@ -5,6 +5,8 @@ import type { BasemapId } from './map/basemaps'
 import { useAppStore } from './store/useAppStore'
 import { usePlayback } from './playback/usePlayback'
 import { buildPlaybackLayers } from './playback/layers'
+import { buildGravityLayers, DEFAULT_GRAVITY, type GravitySettings } from './gravity/layers'
+import { buildWeightedPoints } from './gravity/weights'
 import { FileDrop } from './ui/FileDrop'
 import { StatsPanel } from './ui/StatsPanel'
 import { PlaybackBar } from './ui/PlaybackBar'
@@ -35,6 +37,24 @@ export function App() {
 
   const pb = usePlayback(dataset)
 
+  const [gravity, setGravity] = useState<GravitySettings>(DEFAULT_GRAVITY)
+  const changeGravity = (patch: Partial<GravitySettings>) =>
+    setGravity((g) => ({ ...g, ...patch }))
+
+  const gravityPoints = useMemo(
+    () => buildWeightedPoints(dataset, pb.trips, pb.selection, gravity.source),
+    [dataset, pb.trips, pb.selection, gravity.source],
+  )
+
+  // 選択中の期間に Google の訪問データがあるか（2024 年秋以降のみ存在する）
+  const visitAvailable = useMemo(
+    () =>
+      (dataset?.visits ?? []).some(
+        (v) => v.start < pb.selection.end && v.end > pb.selection.start,
+      ),
+    [dataset, pb.selection],
+  )
+
   // 追従モード: 現在地を画面の中央に捉え続ける。
   // jumpTo なのでアニメーションが積み重ならず、毎フレーム呼んでも震えない。
   const follow = pb.settings.camera === 'follow'
@@ -47,16 +67,27 @@ export function App() {
 
   const layers = useMemo<Layer[]>(() => {
     if (!dataset) return []
-    return buildPlaybackLayers({
-      trips: pb.trips,
-      rel: pb.rel,
-      currentRel: pb.currentRel,
-      settings: pb.settings,
-      colors: pb.colors,
-      activeVisit: pb.activeVisit,
-      cursor: pb.cursor,
+    // 重力マップを先に積む＝軌跡がその上に描かれる
+    const gravityLayers = buildGravityLayers({
+      mode: gravity.mode,
+      points: gravityPoints,
+      radiusMeters: gravity.radiusMeters,
+      intensity: gravity.intensity,
+      opacity: gravity.opacity,
     })
-  }, [dataset, pb.trips, pb.rel, pb.currentRel, pb.settings, pb.colors, pb.activeVisit, pb.cursor])
+    return [
+      ...gravityLayers,
+      ...buildPlaybackLayers({
+        trips: pb.trips,
+        rel: pb.rel,
+        currentRel: pb.currentRel,
+        settings: pb.settings,
+        colors: pb.colors,
+        activeVisit: pb.activeVisit,
+        cursor: pb.cursor,
+      }),
+    ]
+  }, [dataset, gravity, gravityPoints, pb.trips, pb.rel, pb.currentRel, pb.settings, pb.colors, pb.activeVisit, pb.cursor])
 
   return (
     <div className="app">
@@ -79,6 +110,10 @@ export function App() {
             dim={dim}
             onDimChange={setDim}
             onFocus={(lon, lat) => mapRef.current?.flyTo({ longitude: lon, latitude: lat, zoom: 12 })}
+            gravity={gravity}
+            onGravityChange={changeGravity}
+            gravityPoints={gravityPoints}
+            visitAvailable={visitAvailable}
           />
         )}
         {status === 'ready' && dataset && (
