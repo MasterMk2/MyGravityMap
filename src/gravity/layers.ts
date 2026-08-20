@@ -31,6 +31,40 @@ export interface GravityLayerInput {
   intensity: number
   /** 軌跡の下に敷くので控えめにできるようにする */
   opacity: number
+  /** 現在のズーム。ヒートマップの格子の大きさを決めるのに使う */
+  zoom: number
+  /** 画面中央あたりの緯度。1 画素が何メートルかは緯度で変わる */
+  latitude: number
+}
+
+/** そのズームで画面 1 画素が地上何メートルにあたるか */
+function metersPerPixel(zoom: number, latitude: number): number {
+  return (156543.03392 * Math.cos((latitude * Math.PI) / 180)) / 2 ** zoom
+}
+
+/** 1・2・5 × 10^n に丸める。格子サイズのキャッシュが効くようにするため */
+function roundToNice(v: number): number {
+  if (!(v > 0)) return 1
+  const exp = Math.floor(Math.log10(v))
+  const base = 10 ** exp
+  const m = v / base
+  const nice = m <= 1.5 ? 1 : m <= 3.5 ? 2 : m <= 7.5 ? 5 : 10
+  return nice * base
+}
+
+/**
+ * ヒートマップの格子の大きさ。
+ *
+ * SUM は重なった点を足し合わせるので、引いて見ると 1 画素に入るマスの数が増え、
+ * どんどん明るくなってしまう。マスを画素の大きさに追随させれば、
+ * どのズームでも「1 画素あたりのマス数」がほぼ変わらず、明るさが安定する。
+ *
+ * 寄って見ているときは利用者が選んだ粒度をそのまま使う（そちらの方が細かいため）。
+ */
+export function heatCellMeters(radiusMeters: number, zoom: number, latitude: number): number {
+  const mpp = metersPerPixel(zoom, latitude)
+  // ズーム由来の値だけを丸める。粒度は利用者が選んだ値をそのまま尊重したい。
+  return Math.max(radiusMeters, roundToNice(mpp * 2))
 }
 
 /**
@@ -113,7 +147,7 @@ function indexData(points: WeightedPoints): number[] {
 }
 
 export function buildGravityLayers(input: GravityLayerInput): Layer[] {
-  const { mode, points, radiusMeters, intensity, opacity } = input
+  const { mode, points, radiusMeters, intensity, opacity, zoom, latitude } = input
   if (mode === 'off' || points.count === 0) return []
 
   const layers: Layer[] = []
@@ -131,8 +165,8 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
 
   if (mode === 'heat' || mode === 'both') {
     // 先に格子へまとめてから描く（点の密度の偏りを消すため）。
-    // マスの大きさは「粒度」の値をそのまま使う。
-    const heat = heatPoints(points, radiusMeters)
+    // マスの大きさは粒度とズームの両方から決める（heatCellMeters を参照）。
+    const heat = heatPoints(points, heatCellMeters(radiusMeters, zoom, latitude))
     const heatIndices = indexData(heat)
     layers.push(
       new HeatmapLayer<number>({
@@ -156,7 +190,9 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
          * まとめて 1 マス 1 点にしてあるので、ここでは起きない。
          */
         aggregation: 'SUM',
-        radiusPixels: 26,
+        // 光る範囲の広さ。狭いと道路が細い線としてしか出ず、
+        // 「どのあたりで暮らしているか」が読み取りにくい。
+        radiusPixels: 32,
         intensity,
         /*
          * threshold 未満の画素は描かれない＝ここが輪郭になる。

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Layer } from '@deck.gl/core'
 import { MapCanvas, type MapCanvasHandle } from './map/MapCanvas'
 import type { BasemapId } from './map/basemaps'
@@ -59,6 +59,18 @@ export function App() {
   const pb = usePlayback(dataset)
 
   const [gravity, setGravity] = useState<GravitySettings>(DEFAULT_GRAVITY)
+
+  /*
+   * ヒートマップの格子はズームに追随させる（引きで明るくなりすぎないように）。
+   * ただし地図を動かすたびに集計し直すと重いので、ズームは 0.5 刻み、
+   * 緯度は 5 度刻みに丸めて、変わったときだけ状態を更新する。
+   */
+  const [view, setView] = useState({ zoom: 4.5, latitude: 37 })
+  const onViewStateChange = useCallback((v: { zoom: number; latitude: number }) => {
+    const zoom = Math.round(v.zoom * 2) / 2
+    const latitude = Math.round(v.latitude / 5) * 5
+    setView((prev) => (prev.zoom === zoom && prev.latitude === latitude ? prev : { zoom, latitude }))
+  }, [])
   const changeGravity = (patch: Partial<GravitySettings>) =>
     setGravity((g) => ({ ...g, ...patch }))
 
@@ -107,9 +119,11 @@ export function App() {
             radiusMeters: gravity.radiusMeters,
             intensity: gravity.intensity,
             opacity: gravity.opacity,
+            zoom: view.zoom,
+            latitude: view.latitude,
           })
         : [],
-    [dataset, gravity, gravityPoints],
+    [dataset, gravity, gravityPoints, view],
   )
 
   const playbackLayers = useMemo<Layer[]>(
@@ -141,6 +155,7 @@ export function App() {
         layers={layers}
         basemap={basemap}
         mapFilter={mapFilter}
+        onViewStateChange={onViewStateChange}
         // 自分で地図を動かしたら追従を解除する（引っ張り合いにならないように）
         onUserPan={() => {
           if (pb.settings.camera === 'follow') pb.changeSettings({ camera: 'fixed' })

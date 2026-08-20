@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { aggregateToCells, trackWeights, visitWeights } from '../src/gravity/weights'
+import { heatCellMeters } from '../src/gravity/layers'
 import type { Trip, Visit } from '../src/core/types'
 
 function trip(coords: number[], times: number[]): Trip {
@@ -127,5 +128,37 @@ describe('aggregateToCells', () => {
 
   it('点が無ければ空を返す', () => {
     expect(aggregateToCells(pts([], []), 150).count).toBe(0)
+  })
+})
+
+describe('heatCellMeters', () => {
+  const LAT = 36
+
+  it('寄っているときは利用者が選んだ粒度をそのまま使う', () => {
+    // z14 は 1 画素あたり 10m 弱。粒度 250m の方が粗いのでそちらが勝つ
+    expect(heatCellMeters(250, 14, LAT)).toBe(250)
+    expect(heatCellMeters(100, 14, LAT)).toBe(100)
+  })
+
+  it('引くほどマスが大きくなる（1 画素あたりのマス数を一定に保つため）', () => {
+    const zooms = [14, 12, 10, 8, 6]
+    const cells = zooms.map((z) => heatCellMeters(250, z, LAT))
+    for (let i = 1; i < cells.length; i++) {
+      expect(cells[i]!).toBeGreaterThanOrEqual(cells[i - 1]!)
+    }
+    // 全国が見えるくらいまで引くと km 単位になる
+    expect(heatCellMeters(250, 6, LAT)).toBeGreaterThan(1000)
+  })
+
+  it('引きのときは 1・2・5 × 10^n に丸まる（格子のキャッシュが効くように）', () => {
+    for (const z of [5, 6, 7, 8, 9]) {
+      const c = heatCellMeters(250, z, LAT)
+      const m = c / 10 ** Math.floor(Math.log10(c))
+      expect([1, 2, 5]).toContain(Math.round(m))
+    }
+  })
+
+  it('高緯度ではマスが小さくなる（1 画素あたりの距離が縮むため）', () => {
+    expect(heatCellMeters(100, 10, 60)).toBeLessThanOrEqual(heatCellMeters(100, 10, 0))
   })
 })
