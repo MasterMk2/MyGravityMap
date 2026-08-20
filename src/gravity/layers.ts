@@ -34,17 +34,32 @@ export interface GravityLayerInput {
 }
 
 /**
- * 重力＝滞在時間の色。暗い青緑から白へ。
- * 暗い基図の上でも軌跡の色（年ごとの色相）と喧嘩しないよう、
- * 低い側は彩度を落とし、高い側だけ白く飛ばす。
+ * ヒートマップの色。低い側ほど透明にしていく。
+ *
+ * 低い側に濃い色を置くと、弱い場所が「暗い塊」として地図の上に乗り、
+ * 輪郭が縁取りのように見えて汚くなる（実際そうなっていた）。
+ * 不透明度で抜いていけば、弱い場所は地図に溶けて消える。
  */
-const COLOR_RANGE: Array<[number, number, number]> = [
-  [12, 44, 64],
+const HEAT_COLORS: Array<[number, number, number, number]> = [
+  [21, 101, 138, 0],
+  [26, 152, 160, 80],
+  [45, 195, 152, 145],
+  [130, 222, 128, 195],
+  [214, 240, 130, 228],
+  [255, 255, 245, 255],
+]
+
+/**
+ * 六角柱の色。こちらは柱そのものなので透明にはしない。
+ * 低い柱も見えている必要がある。
+ */
+const HEX_COLORS: Array<[number, number, number]> = [
   [20, 92, 110],
   [26, 146, 140],
-  [86, 196, 154],
-  [186, 230, 160],
-  [255, 255, 235],
+  [45, 195, 152],
+  [130, 222, 128],
+  [214, 240, 130],
+  [255, 255, 245],
 ]
 
 /**
@@ -115,8 +130,9 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
   }
 
   if (mode === 'heat' || mode === 'both') {
-    // ヒートマップは 150m の格子にまとめてから描く（点の密度の偏りを消すため）
-    const heat = heatPoints(points, 150)
+    // 先に格子へまとめてから描く（点の密度の偏りを消すため）。
+    // マスの大きさは「粒度」の値をそのまま使う。
+    const heat = heatPoints(points, radiusMeters)
     const heatIndices = indexData(heat)
     layers.push(
       new HeatmapLayer<number>({
@@ -135,11 +151,12 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
          * ズームを変えても意味が変わらない。
          */
         aggregation: 'MEAN',
-        radiusPixels: 44,
+        // 44px だと隣の山と溶け合って全体が 1 枚の靄になっていた
+        radiusPixels: 18,
         intensity,
         // 対数にしてあるので、低い側も拾えるよう既定（0.05）より下げる
         threshold: 0.01,
-        colorRange: COLOR_RANGE,
+        colorRange: HEAT_COLORS,
         opacity,
         updateTriggers: { getPosition: heat.positions, getWeight: heat.weights },
       }),
@@ -194,7 +211,7 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
         elevationLowerPercentile: 0,
         elevationUpperPercentile: 100,
         upperPercentile: 100,
-        colorRange: COLOR_RANGE,
+        colorRange: HEX_COLORS,
         coverage: 0.86,
         opacity: mode === 'both' ? opacity * 0.85 : opacity,
         pickable: false,

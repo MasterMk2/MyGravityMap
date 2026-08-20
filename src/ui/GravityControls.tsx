@@ -40,7 +40,6 @@ function hours(sec: number): string {
 
 export function GravityControls({ settings, onChange, points, visitAvailable }: Props) {
   const on = settings.mode !== 'off'
-  const showRadius = settings.mode === 'hex' || settings.mode === 'both'
 
   return (
     <div className="gravity">
@@ -81,24 +80,23 @@ export function GravityControls({ settings, onChange, points, visitAvailable }: 
             </div>
           </div>
 
-          {showRadius && (
-            <div className="gravity__row">
-              <span>粒度</span>
-              <div className="segmented" role="group" aria-label="六角柱の粒度">
-                {RADII.map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    className={settings.radiusMeters === r ? 'is-active' : ''}
-                    aria-pressed={settings.radiusMeters === r}
-                    onClick={() => onChange({ radiusMeters: r })}
-                  >
-                    {r >= 1000 ? `${r / 1000}km` : `${r}m`}
-                  </button>
-                ))}
-              </div>
+          {/* 粒度は六角柱の 1 マスの大きさであり、ヒートマップの格子の大きさでもある */}
+          <div className="gravity__row">
+            <span>粒度</span>
+            <div className="segmented" role="group" aria-label="粒度">
+              {RADII.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  className={settings.radiusMeters === r ? 'is-active' : ''}
+                  aria-pressed={settings.radiusMeters === r}
+                  onClick={() => onChange({ radiusMeters: r })}
+                >
+                  {r >= 1000 ? `${r / 1000}km` : `${r}m`}
+                </button>
+              ))}
             </div>
-          )}
+          </div>
 
           <label className="gravity__slider">
             <span>
