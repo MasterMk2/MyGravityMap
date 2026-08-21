@@ -24,6 +24,7 @@ import type {
 import { parseLatLng, parseTimeSec, tzOffsetMinFromIso } from '../core/geo'
 import { assignModes, buildTrips } from '../core/trips'
 import { aggregatePlaces, computeCoverage } from '../core/aggregate'
+import { deriveVisitsFromTrips } from '../core/visits'
 
 interface RawLatLng {
   latLng?: string
@@ -297,17 +298,21 @@ async function parseSource(source: ParseSource, fileHash: string): Promise<Datas
 
   post({ type: 'progress', phase: '場所を集計中', bytesRead: total, bytesTotal: total })
 
-  const { places } = aggregatePlaces(visits)
+  // coverage は Google の訪問データが無い年を判定するために使うので、
+  // 訪問の復元（deriveVisitsFromTrips）より先に求めておく必要がある。
   const coverage = computeCoverage({ pathBuckets, visitYears })
+  const derivedVisits = deriveVisitsFromTrips(trips, visits, coverage)
+  const allVisits = [...visits, ...derivedVisits]
+  const { places } = aggregatePlaces(allVisits)
 
   const times = [
     ...trips.map((t) => t.tStart),
-    ...visits.map((v) => v.start),
+    ...allVisits.map((v) => v.start),
     ...moves.map((m) => m.start),
   ]
   const ends = [
     ...trips.map((t) => t.tEnd),
-    ...visits.map((v) => v.end),
+    ...allVisits.map((v) => v.end),
     ...moves.map((m) => m.end),
   ]
 
@@ -318,7 +323,7 @@ async function parseSource(source: ParseSource, fileHash: string): Promise<Datas
     tMin: times.length ? Math.min(...times) : 0,
     tMax: ends.length ? Math.max(...ends) : 0,
     trips,
-    visits,
+    visits: allVisits,
     moves,
     places,
     coverage,
