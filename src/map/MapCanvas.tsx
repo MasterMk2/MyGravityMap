@@ -17,6 +17,7 @@ import { MapboxOverlay } from '@deck.gl/mapbox'
 import type { Layer } from '@deck.gl/core'
 import { BASEMAPS, attributionOf } from './basemaps'
 import type { BasemapId } from './basemaps'
+import { buildBuildingsLayer } from './buildings'
 import { ensureMaplibreWorker } from './maplibreWorker'
 import './MapCanvas.css'
 
@@ -108,6 +109,19 @@ function syncAttribution(
     map.addControl(control)
     attributionRef.current = control
   }
+}
+
+/**
+ * setStyle のたびに層は入れ替わる（style.load ごとに呼ぶ想定）ので毎回付け直す。
+ * buildBuildingsLayer はベクタ基図が無ければ null を返すので、ラスタ／オフライン基図では
+ * 何もしない。ラベルの上に建物が被らないよう、最初の symbol レイヤの手前に挿す。
+ */
+function add3dBuildings(map: MapLibreMap): void {
+  if (map.getLayer('buildings')) return
+  const layer = buildBuildingsLayer(map.getStyle())
+  if (!layer) return
+  const labelLayerId = map.getStyle().layers?.find((l) => l.type === 'symbol')?.id
+  map.addLayer(layer, labelLayerId)
 }
 
 export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
@@ -235,6 +249,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
         if (currentOverlay && !map.hasControl(currentOverlay)) {
           map.addControl(currentOverlay)
         }
+        add3dBuildings(map)
       }
       map.on('style.load', handleStyleLoad)
 

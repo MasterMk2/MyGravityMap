@@ -25,6 +25,8 @@ Semantic*Location*History/
 # ---------------------------------------------------------------
 node_modules/
 dist/
+# local-llm-quality-harness の pre-night 検証が実リポジトリ直下で書き出す一時ファイル
+tsconfig.check.json
 dist-ssr/
 build/
 coverage/
