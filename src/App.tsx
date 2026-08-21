@@ -233,6 +233,7 @@ export function App() {
               progress={pb.progress}
               settings={pb.settings}
               onSettingsChange={pb.changeSettings}
+              onPaceChange={pb.changePace}
               coverage={dataset.coverage}
               tzOffsetMin={pb.tzOffsetMin}
             />

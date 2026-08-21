@@ -1,13 +1,17 @@
 import { describe, it, expect } from 'vitest'
 import type { Trip, TimeWindow, Visit } from '../src/core/types'
+import { haversineMeters } from '../src/core/geo'
 import {
   filterTripsToWindow,
   rebaseTimes,
   findGaps,
   buildTimeMap,
+  buildMotionTimeMap,
+  defaultPaceFor,
   defaultSpeedFor,
   activeVisitAt,
   advance,
+  MOTION_TARGET_DURATION_SEC,
 } from '../src/core/playback'
 
 const DAY = 86400
@@ -25,6 +29,24 @@ function makeTrip(tStart: number, tEnd: number, times?: number[]): Trip {
     times: Int32Array.from(ts),
     tStart,
     tEnd,
+    mode: 'UNKNOWN',
+    isFlight: false,
+  }
+}
+
+/** 各点に異なる座標を持たせられる Trip。距離ベースのペース（buildMotionTimeMap/
+ *  defaultPaceFor）のテスト用 — makeTrip は全点同座標（距離ゼロ）になるため使えない。 */
+function makeTripWithCoords(times: number[], lonLat: Array<[number, number]>): Trip {
+  const coords = new Float64Array(lonLat.length * 2)
+  lonLat.forEach(([lon, lat], i) => {
+    coords[i * 2] = lon
+    coords[i * 2 + 1] = lat
+  })
+  return {
+    coords,
+    times: Int32Array.from(times),
+    tStart: times[0]!,
+    tEnd: times[times.length - 1]!,
     mode: 'UNKNOWN',
     isFlight: false,
   }
@@ -217,6 +239,102 @@ describe('buildTimeMap', () => {
     expect(map.toReal(map.totalSec + 100)).toBe(w.end)
     expect(map.toCompressed(w.start - 100)).toBe(0)
     expect(map.toCompressed(w.end + 100)).toBe(map.totalSec)
+  })
+})
+
+describe('defaultPaceFor', () => {
+  it('targets ~90s playback for the total GPS distance in the window', () => {
+    const w: TimeWindow = { start: 0, end: 100 }
+    const trip = makeTripWithCoords(
+      [0, 100],
+      [
+        [139.7, 35.1],
+        [139.71, 35.11],
+      ],
+    )
+    const dist = haversineMeters(35.1, 139.7, 35.11, 139.71)
+
+    const pace = defaultPaceFor([trip], w)
+    expect(pace).toBeCloseTo(dist / MOTION_TARGET_DURATION_SEC, 6)
+  })
+
+  it('clips distance to the window rather than counting the whole trip', () => {
+    const w: TimeWindow = { start: 0, end: 50 } // trip の前半だけが window に入る
+    const trip = makeTripWithCoords(
+      [0, 100],
+      [
+        [139.7, 35.1],
+        [139.71, 35.11],
+      ],
+    )
+    const fullDist = haversineMeters(35.1, 139.7, 35.11, 139.71)
+
+    const pace = defaultPaceFor([trip], w)
+    // clipTripSegment は時間比で距離を按分するので、window の半分なら距離も半分
+    expect(pace).toBeCloseTo(fullDist / 2 / MOTION_TARGET_DURATION_SEC, 6)
+  })
+})
+
+describe('buildMotionTimeMap', () => {
+  it('paces a single segment by distance / targetSpeedMps when under the cap', () => {
+    const w: TimeWindow = { start: 0, end: 100 }
+    const trip = makeTripWithCoords(
+      [0, 100],
+      [
+        [139.7, 35.1],
+        [139.71, 35.11],
+      ],
+    )
+    const dist = haversineMeters(35.1, 139.7, 35.11, 139.71)
+    const targetSpeedMps = dist / 3 // 3秒で走破するペース（上限 90*0.08=7.2秒 未満）
+
+    // trip が window ぴったりを覆っているので空白は無く、hold は発生しない
+    const map = buildMotionTimeMap(w, [trip], targetSpeedMps)
+    expect(map.totalSec).toBeCloseTo(3, 6)
+  })
+
+  it('caps a single huge jump so it cannot dominate playback', () => {
+    const w: TimeWindow = { start: 0, end: 100 }
+    // 東京とニューヨーク相当の遠く離れた2点を1区間に押し込む（GPS 記録ギャップの想定）
+    const trip = makeTripWithCoords(
+      [0, 100],
+      [
+        [139.7, 35.1],
+        [-74.0, 40.7],
+      ],
+    )
+    const dist = haversineMeters(35.1, 139.7, 40.7, -74.0)
+    const targetSpeedMps = dist / 1000 // 素直に計算すると1000秒かかる距離
+
+    const map = buildMotionTimeMap(w, [trip], targetSpeedMps)
+    // 上限（目標秒数 90 の 8% = 7.2 秒）に張り付く。1000 秒には全くならない
+    expect(map.totalSec).toBeCloseTo(90 * 0.08, 6)
+  })
+
+  it('holds through gaps instead of freezing, with a bounded per-gap duration', () => {
+    const w: TimeWindow = { start: 0, end: 10 * DAY }
+    const trip = makeTrip(3 * DAY, 4 * DAY) // 座標固定（距離ゼロ）。前後に空白が2件できる
+    const map = buildMotionTimeMap(w, [trip], 1)
+
+    // 空白2件 × holdSec。budget(0.25*90=22.5)/2件 は上限 1.0 秒でクランプされるので
+    // 実際の hold は 1件あたり 1.0 秒 = 合計 2.0 秒（trip 内部は距離ゼロで 0 秒）
+    expect(map.totalSec).toBeCloseTo(2, 6)
+  })
+
+  it('does not crash and holds the whole window when there are no trips', () => {
+    const w: TimeWindow = { start: 0, end: 10 * DAY }
+    const map = buildMotionTimeMap(w, [], 1)
+    expect(map.totalSec).toBeCloseTo(1, 6) // 空白1件のみ、holdSec は上限 1.0 秒でクランプ
+    expect(map.toReal(0)).toBe(w.start)
+    expect(map.toReal(map.totalSec)).toBe(w.end)
+  })
+
+  it('handles a single-point trip without emitting any distance segment', () => {
+    const w: TimeWindow = { start: 0, end: 10 * DAY }
+    const trip = makeTrip(5 * DAY, 5 * DAY, [5 * DAY]) // 1点のみ
+    const map = buildMotionTimeMap(w, [trip], 1)
+    // トリップ自体は区間を生まず、前後の空白2件分の hold のみ
+    expect(map.totalSec).toBeCloseTo(2, 6)
   })
 })
 

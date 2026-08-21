@@ -4,6 +4,7 @@
  * 副作用なし・純粋関数のみ。
  */
 import type { Trip, TimeWindow, Gap, TimeMap, Visit, Seconds } from './types'
+import { haversineMeters } from './geo'
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
@@ -148,8 +149,13 @@ export function buildTimeMap(
     cursorReal = w.end
   }
 
-  const totalSec = cursorComp
+  return segmentsToTimeMap(segments, w, cursorComp)
+}
 
+/** TimeSegment[] から TimeMap を組み立てる。buildTimeMap と buildMotionTimeMap の共通の末尾。
+ *  segments は realEnd・compEnd について単調増加で、隙間なく連続している前提
+ *  （呼び出し側が保証する）。 */
+function segmentsToTimeMap(segments: TimeSegment[], w: TimeWindow, totalSec: number): TimeMap {
   if (segments.length === 0) {
     // window の長さが 0（start === end）のときだけここに来る。
     return {
@@ -176,6 +182,119 @@ export function buildTimeMap(
       return seg.compStart + frac * (seg.compEnd - seg.compStart)
     },
   }
+}
+
+/** 「動きペース」モードの目標再生秒数（defaultSpeedFor の 60〜120 秒目標の中央値）。 */
+export const MOTION_TARGET_DURATION_SEC = 90
+/** 空白（トリップに覆われていない実時間）1件あたりの停止時間の上限（秒）。 */
+const MOTION_HOLD_MAX_SEC = 1.0
+/** 空白の停止時間の合計に割り当てる、目標秒数に対する割合。
+ *  空白の件数が多い期間（トリップが細切れの期間）で停止時間が積み上がって
+ *  再生全体が破綻しないよう、件数で割った動的な値を使う。固定 2 秒（DEFAULT_HOLD_SEC）は
+ *  time モードでは speed 倍率がかかるため無視できる値だが、motion モードは倍率が概ね 1 なので
+ *  そのままでは使えない。 */
+const MOTION_HOLD_BUDGET_FRACTION = 0.25
+/** 1 区間（トリップ内の隣接 2 点間）が消費できる圧縮秒数の上限を、目標秒数に対する割合で決める。
+ *  GPS 記録がまばらな区間（記録ギャップ）が距離ベースのペースを支配しないための安全弁。 */
+const MOTION_CAP_FRACTION = 0.08
+
+interface ClippedTripSegment {
+  realStart: Seconds
+  realEnd: Seconds
+  distMeters: number
+}
+
+/** trip の点 i, i+1 間を window にクランプし、距離を時間比で按分する
+ *  （positionAt が同じ2点間で行う等速の線形補間と同じ前提を距離側にも適用する）。
+ *  window に全くかからなければ null。 */
+function clipTripSegment(trip: Trip, i: number, w: TimeWindow): ClippedTripSegment | null {
+  const realStart = trip.times[i]!
+  const realEnd = trip.times[i + 1]!
+  if (realEnd <= w.start || realStart >= w.end) return null
+  const clipStart = clamp(realStart, w.start, w.end)
+  const clipEnd = clamp(realEnd, w.start, w.end)
+  if (clipEnd <= clipStart) return null
+  const span = realEnd - realStart
+  const frac = span > 0 ? (clipEnd - clipStart) / span : 1
+  const fullDist = haversineMeters(
+    trip.coords[i * 2 + 1]!,
+    trip.coords[i * 2]!,
+    trip.coords[(i + 1) * 2 + 1]!,
+    trip.coords[(i + 1) * 2]!,
+  )
+  return { realStart: clipStart, realEnd: clipEnd, distMeters: fullDist * frac }
+}
+
+/** window にクリップした、trips の合計 GPS 移動距離（メートル、キャップ適用前の raw 値）。 */
+function sumClippedDistance(trips: Trip[], w: TimeWindow): number {
+  let total = 0
+  for (const trip of trips) {
+    for (let i = 0; i < trip.times.length - 1; i++) {
+      const seg = clipTripSegment(trip, i, w)
+      if (seg) total += seg.distMeters
+    }
+  }
+  return total
+}
+
+/** 期間内の合計 GPS 移動距離から、期間全体がおよそ targetDurationSec 秒で再生し終わるような
+ *  目標オンスクリーン速度（m/s）を自動計算する。ユーザーが直接選ぶ値ではない
+ *  （defaultSpeedFor の距離版だが、UI 候補が無いので離散候補探索ではなく直接割り算でよい）。 */
+export function defaultPaceFor(
+  trips: Trip[],
+  w: TimeWindow,
+  targetDurationSec: number = MOTION_TARGET_DURATION_SEC,
+): number {
+  const totalDist = sumClippedDistance(trips, w)
+  const MIN_TARGET_SPEED_MPS = 0.1 // totalDist===0 のときの 0 除算だけを避ける下駄。実質使われない
+  return Math.max(totalDist / targetDurationSec, MIN_TARGET_SPEED_MPS)
+}
+
+/** 「動きペース」の圧縮時間軸を作る。trips は時刻順・非重複が前提（buildTimeMap/positionAt
+ *  と同じ契約）。トリップ内の隣接 2 点間は「距離 / targetSpeedMps」だけ圧縮時間を消費する
+ *  （capSegSec で上限、記録ギャップの暴走を防ぐ）。トリップに覆われていない実時間は
+ *  holdSec 秒の一定停止にする。holdSec は window 内の空白の件数から動的に決める
+ *  （件数が多い期間で停止時間の合計が破綻しないように）。 */
+export function buildMotionTimeMap(
+  w: TimeWindow,
+  trips: Trip[],
+  targetSpeedMps: number,
+  targetDurationSec: number = MOTION_TARGET_DURATION_SEC,
+): TimeMap {
+  const sorted = [...trips].sort((a, b) => a.tStart - b.tStart)
+
+  const gapCount = findGaps(sorted, w, 0).length
+  const holdBudget = MOTION_HOLD_BUDGET_FRACTION * targetDurationSec
+  const holdSec = gapCount > 0 ? Math.min(MOTION_HOLD_MAX_SEC, holdBudget / gapCount) : 0
+  const capSegSec = MOTION_CAP_FRACTION * targetDurationSec
+
+  const segments: TimeSegment[] = []
+  let cursorReal = w.start
+  let cursorComp = 0
+
+  const pushHold = (gapStart: Seconds, gapEnd: Seconds) => {
+    if (gapEnd <= gapStart) return
+    segments.push({ realStart: gapStart, realEnd: gapEnd, compStart: cursorComp, compEnd: cursorComp + holdSec })
+    cursorComp += holdSec
+    cursorReal = gapEnd
+  }
+
+  for (const trip of sorted) {
+    if (trip.tEnd <= w.start || trip.tStart >= w.end) continue // 防御的（filterTripsToWindow で除外済みのはず）
+    pushHold(cursorReal, clamp(trip.tStart, w.start, w.end))
+
+    for (let i = 0; i < trip.times.length - 1; i++) {
+      const seg = clipTripSegment(trip, i, w)
+      if (!seg || seg.realStart < cursorReal) continue
+      const compDur = clamp(seg.distMeters / targetSpeedMps, 0, capSegSec)
+      segments.push({ realStart: seg.realStart, realEnd: seg.realEnd, compStart: cursorComp, compEnd: cursorComp + compDur })
+      cursorComp += compDur
+      cursorReal = seg.realEnd
+    }
+  }
+  pushHold(cursorReal, w.end)
+
+  return segmentsToTimeMap(segments, w, cursorComp)
 }
 
 /** 選べる再生速度（実時間倍率）の候補。 */

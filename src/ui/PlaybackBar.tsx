@@ -22,6 +22,8 @@ export interface PlaybackBarProps {
 
   settings: PlaybackSettings
   onSettingsChange: (patch: Partial<PlaybackSettings>) => void
+  /** ペース（'time'/'motion'）の切替。speed の意味が変わるためリセットを伴う専用ハンドラ */
+  onPaceChange: (pace: PlaybackSettings['pace']) => void
 
   /** 年ごとの記録の濃さ。期間スライダーに品質バンドとして重ねる */
   coverage: YearCoverage[]
@@ -31,12 +33,30 @@ export interface PlaybackBarProps {
 
 const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土']
 
+const PACE_OPTIONS: Array<{ value: PlaybackSettings['pace']; label: string; hint: string }> = [
+  { value: 'time', label: '時間', hint: '実時間の倍率で再生する（速い移動は速く、遅い移動は遅く見える）' },
+  {
+    value: 'motion',
+    label: '動き',
+    hint: '画面上の動く速さを一定に保つ（GPS移動距離を基準にペース配分。停止中は自動で早送り）',
+  },
+]
+
 const SPEED_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 60, label: '1分/秒' },
   { value: 600, label: '10分/秒' },
   { value: 3600, label: '1時間/秒' },
   { value: 86400, label: '1日/秒' },
   { value: 604800, label: '1週/秒' },
+]
+
+/** 'motion' モード中の速度セグメントの選択肢。目標ペースへの相対倍率（絶対速度は
+ *  defaultPaceFor が期間ごとに自動計算するため、ここでは相対調整のみ） */
+const MOTION_RATE_OPTIONS: Array<{ value: number; label: string }> = [
+  { value: 0.5, label: '×0.5' },
+  { value: 1, label: '×1' },
+  { value: 2, label: '×2' },
+  { value: 4, label: '×4' },
 ]
 
 const TRAIL_OPTIONS: Array<{ value: PlaybackSettings['trail']; label: string }> = [
@@ -146,6 +166,7 @@ export function PlaybackBar(props: PlaybackBarProps): JSX.Element {
     progress,
     settings,
     onSettingsChange,
+    onPaceChange,
     coverage,
     tzOffsetMin,
   } = props
@@ -241,9 +262,27 @@ export function PlaybackBar(props: PlaybackBarProps): JSX.Element {
         </div>
 
         <div className="playbackbar__group">
-          <span className="playbackbar__label">速度</span>
-          <div className="segmented" role="group" aria-label="再生速度">
-            {SPEED_OPTIONS.map((o) => (
+          <span className="playbackbar__label">ペース</span>
+          <div className="segmented" role="group" aria-label="再生ペース">
+            {PACE_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                title={o.hint}
+                className={settings.pace === o.value ? 'is-active' : ''}
+                aria-pressed={settings.pace === o.value}
+                onClick={() => onPaceChange(o.value)}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="playbackbar__group">
+          <span className="playbackbar__label">{settings.pace === 'motion' ? '速さ' : '速度'}</span>
+          <div className="segmented" role="group" aria-label={settings.pace === 'motion' ? '再生の速さ' : '再生速度'}>
+            {(settings.pace === 'motion' ? MOTION_RATE_OPTIONS : SPEED_OPTIONS).map((o) => (
               <button
                 key={o.value}
                 type="button"
@@ -329,18 +368,20 @@ export function PlaybackBar(props: PlaybackBarProps): JSX.Element {
           </div>
         </div>
 
-        <div className="playbackbar__group playbackbar__toggleGroup">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={settings.skipGaps}
-            className={`playbackbar__toggle${settings.skipGaps ? ' is-active' : ''}`}
-            onClick={() => onSettingsChange({ skipGaps: !settings.skipGaps })}
-          >
-            空白スキップ
-          </button>
-          <span className="playbackbar__hint">記録の無い期間を飛ばす</span>
-        </div>
+        {settings.pace === 'time' && (
+          <div className="playbackbar__group playbackbar__toggleGroup">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings.skipGaps}
+              className={`playbackbar__toggle${settings.skipGaps ? ' is-active' : ''}`}
+              onClick={() => onSettingsChange({ skipGaps: !settings.skipGaps })}
+            >
+              空白スキップ
+            </button>
+            <span className="playbackbar__hint">記録の無い期間を飛ばす</span>
+          </div>
+        )}
       </div>
 
       <div className="playbackbar__row playbackbar__row--period">

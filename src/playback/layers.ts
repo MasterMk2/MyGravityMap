@@ -153,7 +153,7 @@ export function buildPlaybackLayers(input: PlaybackLayerInput): Layer[] {
 
   // 止まっている間は点が動かないので、滞在中は円を出して時間の経過を見せる
   const maxSpeed = input.stayCircleMaxSpeed ?? 86400
-  if (activeVisit && settings.speed <= maxSpeed) {
+  if (activeVisit && (settings.pace === 'motion' || settings.speed <= maxSpeed)) {
     layers.push(
       new ScatterplotLayer<Visit>({
         id: 'playback-stay',

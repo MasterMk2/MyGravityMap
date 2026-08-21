@@ -196,8 +196,10 @@ export interface TimeMap {
 
 /** 再生の設定 */
 export interface PlaybackSettings {
-  /** 実時間倍率 */
+  /** 実時間倍率（'motion' モードでは相対倍率 ×0.5〜×4 として使う） */
   speed: number
+  /** 再生ペースの基準。'time': 実時間の定数倍率。'motion': 画面上の GPS 移動速度を一定に保つ */
+  pace: 'time' | 'motion'
   /** 移動痕の表現 */
   trail: 'gradient' | 'solid' | 'both'
   /** グラデーションの尾の長さ（秒） */

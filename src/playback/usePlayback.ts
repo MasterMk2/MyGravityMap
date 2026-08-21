@@ -3,7 +3,9 @@ import type { Dataset, PlaybackSettings, TimeWindow } from '../core/types'
 import {
   activeVisitAt,
   advance,
+  buildMotionTimeMap,
   buildTimeMap,
+  defaultPaceFor,
   defaultSpeedFor,
   filterTripsToWindow,
   findGaps,
@@ -33,6 +35,7 @@ export function defaultTrailFor(windowSec: number): number {
 
 const DEFAULT_SETTINGS: PlaybackSettings = {
   speed: 86400,
+  pace: 'time',
   // 残る実線＋先頭の尾。加算合成にすると通った回数の多い道が濃く光る
   trail: 'both',
   trailLengthSec: 6 * 3600,
@@ -75,9 +78,16 @@ export function usePlayback(dataset: Dataset | null) {
   )
   const rel = useMemo(() => rebaseTimes(trips, selection.start), [trips, selection.start])
 
+  // 'motion' モードの目標オンスクリーン速度。settings には持たせず、trips/selection から
+  // 都度算出する派生値にする（ユーザーが直接編集する値ではないため）。
+  const paceSpeedMps = useMemo(() => defaultPaceFor(trips, selection), [trips, selection])
+
   const timeMap = useMemo(
-    () => buildTimeMap(selection, findGaps(trips, selection, GAP_THRESHOLD_SEC), settings.skipGaps),
-    [trips, selection, settings.skipGaps],
+    () =>
+      settings.pace === 'motion'
+        ? buildMotionTimeMap(selection, trips, paceSpeedMps)
+        : buildTimeMap(selection, findGaps(trips, selection, GAP_THRESHOLD_SEC), settings.skipGaps),
+    [trips, selection, settings.pace, settings.skipGaps, paceSpeedMps],
   )
 
   const years = useMemo(() => {
@@ -144,6 +154,21 @@ export function usePlayback(dataset: Dataset | null) {
     [],
   )
 
+  // ペースの切替では speed の意味が変わる（time: 実時間倍率 / motion: 相対倍率 ×0.5〜×4）ので、
+  // 単純な changeSettings ではなく専用のリセット込みコールバックにする。していないと、
+  // time→motion 切替直後に speed=86400 のまま（一瞬で終わる）、逆方向も speed=1 のまま
+  // （期間の長さだけ実時間がかかる）になってしまう。
+  const changePace = useCallback(
+    (pace: PlaybackSettings['pace']) => {
+      setSettings((s) => ({
+        ...s,
+        pace,
+        speed: pace === 'motion' ? 1 : defaultSpeedFor(selection.end - selection.start),
+      }))
+    },
+    [selection],
+  )
+
   // 期間を変えたら、その長さに合った速度と尾の長さに選び直す。
   // 8 年を見るときと 1 日を見るときで適切な値がまるで違うため。
   const changeWindow = useCallback((w: TimeWindow) => {
@@ -163,6 +188,7 @@ export function usePlayback(dataset: Dataset | null) {
     changeWindow,
     settings,
     changeSettings,
+    changePace,
     playing,
     setPlaying,
     pos,
