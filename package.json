@@ -1,6 +1,6 @@
 {
   "name": "mygravitymap",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Visualize your Google Maps timeline history entirely in the browser",
