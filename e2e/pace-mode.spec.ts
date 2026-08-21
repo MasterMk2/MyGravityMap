@@ -39,18 +39,18 @@ test('pace toggle switches the speed control and hides skipGaps in motion mode',
   const skipGapsToggle = page.getByRole('switch', { name: '空白スキップ' })
   await expect(skipGapsToggle).toBeVisible()
 
-  // 時間モードでは「速度」ラベル・1分/秒などの候補が出ている
-  await expect(page.getByRole('group', { name: '再生速度' })).toBeVisible()
+  // 時間モードでは「再生速度」の対数スライダーが出ている
+  await expect(page.getByRole('slider', { name: '再生速度' })).toBeVisible()
 
   await motionButton.click()
 
   await expect(motionButton).toHaveAttribute('aria-pressed', 'true')
   await expect(timeButton).toHaveAttribute('aria-pressed', 'false')
 
-  // 動きモードでは「速さ」ラベルに切り替わり、×0.5〜×4 の相対倍率になる
-  const rateGroup = page.getByRole('group', { name: '再生の速さ' })
-  await expect(rateGroup).toBeVisible()
-  await expect(rateGroup.getByRole('button', { name: '×1' })).toHaveAttribute('aria-pressed', 'true')
+  // 動きモードでは「再生の速さ」の相対倍率スライダーに切り替わり、既定は ×0.5
+  const rateSlider = page.getByRole('slider', { name: '再生の速さ' })
+  await expect(rateSlider).toBeVisible()
+  await expect(rateSlider).toHaveAttribute('aria-valuetext', '×0.5')
 
   // 動きモードには「空白スキップ」の代替動作が無いので非表示になる
   await expect(skipGapsToggle).toBeHidden()
@@ -58,7 +58,7 @@ test('pace toggle switches the speed control and hides skipGaps in motion mode',
   await timeButton.click()
 
   await expect(timeButton).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByRole('group', { name: '再生速度' })).toBeVisible()
+  await expect(page.getByRole('slider', { name: '再生速度' })).toBeVisible()
   await expect(skipGapsToggle).toBeVisible()
 
   expect(consoleErrors, `console errors:\n${consoleErrors.join('\n')}`).toEqual([])

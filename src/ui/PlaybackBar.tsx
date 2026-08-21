@@ -42,22 +42,51 @@ const PACE_OPTIONS: Array<{ value: PlaybackSettings['pace']; label: string; hint
   },
 ]
 
-const SPEED_OPTIONS: Array<{ value: number; label: string }> = [
-  { value: 60, label: '1分/秒' },
-  { value: 600, label: '10分/秒' },
-  { value: 3600, label: '1時間/秒' },
-  { value: 86400, label: '1日/秒' },
-  { value: 604800, label: '1週/秒' },
-]
+/** 速度スライダーの位置(整数, 0..RESOLUTION)を対数スケールで実際の値に変換する。
+ *  time モードの倍率(60〜604800)は1万倍のレンジにまたがるので、線形スライダーだと
+ *  片側に張り付いて分解能が死ぬ。対数にすることで全域を滑らかに刻める。 */
+const SLIDER_RESOLUTION = 1000
 
-/** 'motion' モード中の速度セグメントの選択肢。目標ペースへの相対倍率（絶対速度は
- *  defaultPaceFor が期間ごとに自動計算するため、ここでは相対調整のみ） */
-const MOTION_RATE_OPTIONS: Array<{ value: number; label: string }> = [
-  { value: 0.5, label: '×0.5' },
-  { value: 1, label: '×1' },
-  { value: 2, label: '×2' },
-  { value: 4, label: '×4' },
-]
+function sliderToValue(pos: number, min: number, max: number): number {
+  const t = pos / SLIDER_RESOLUTION
+  return Math.exp(Math.log(min) + t * (Math.log(max) - Math.log(min)))
+}
+
+function valueToSlider(value: number, min: number, max: number): number {
+  const clamped = Math.min(Math.max(value, min), max)
+  const t = (Math.log(clamped) - Math.log(min)) / (Math.log(max) - Math.log(min))
+  return Math.round(t * SLIDER_RESOLUTION)
+}
+
+/** time モードの速度スライダーの範囲。以前の固定候補(60〜604800)と同じ両端を保つ。 */
+const TIME_SPEED_MIN = 60
+const TIME_SPEED_MAX = 604800
+
+/** motion モードの相対倍率スライダーの範囲。下限を 0.5→0.1 に広げ、
+ *  「等速モードが速すぎる」ときに実際に体感できるまで落とせるようにしてある。 */
+const MOTION_RATE_MIN = 0.1
+const MOTION_RATE_MAX = 8
+
+/** 実時間倍率を「2.4時間/秒」のような表示に整形する。 */
+function formatSpeedLabel(speedPerSec: number): string {
+  const units: Array<{ sec: number; label: string }> = [
+    { sec: 604800, label: '週' },
+    { sec: 86400, label: '日' },
+    { sec: 3600, label: '時間' },
+    { sec: 60, label: '分' },
+    { sec: 1, label: '秒' },
+  ]
+  const unit = units.find((u) => speedPerSec / u.sec >= 1) ?? units[units.length - 1]!
+  const value = speedPerSec / unit.sec
+  const formatted = value >= 10 ? String(Math.round(value)) : String(Math.round(value * 10) / 10)
+  return `${formatted}${unit.label}/秒`
+}
+
+/** motion モードの相対倍率表示。 */
+function formatRateLabel(rate: number): string {
+  const formatted = rate >= 10 ? String(Math.round(rate)) : String(Math.round(rate * 100) / 100)
+  return `×${formatted}`
+}
 
 const TRAIL_OPTIONS: Array<{ value: PlaybackSettings['trail']; label: string }> = [
   { value: 'gradient', label: 'グラデーション' },
@@ -281,19 +310,33 @@ export function PlaybackBar(props: PlaybackBarProps): JSX.Element {
 
         <div className="playbackbar__group">
           <span className="playbackbar__label">{settings.pace === 'motion' ? '速さ' : '速度'}</span>
-          <div className="segmented" role="group" aria-label={settings.pace === 'motion' ? '再生の速さ' : '再生速度'}>
-            {(settings.pace === 'motion' ? MOTION_RATE_OPTIONS : SPEED_OPTIONS).map((o) => (
-              <button
-                key={o.value}
-                type="button"
-                className={settings.speed === o.value ? 'is-active' : ''}
-                aria-pressed={settings.speed === o.value}
-                onClick={() => onSettingsChange({ speed: o.value })}
-              >
-                {o.label}
-              </button>
-            ))}
-          </div>
+          <input
+            type="range"
+            className="playbackbar__speedSlider"
+            min={0}
+            max={SLIDER_RESOLUTION}
+            step={1}
+            value={
+              settings.pace === 'motion'
+                ? valueToSlider(settings.speed, MOTION_RATE_MIN, MOTION_RATE_MAX)
+                : valueToSlider(settings.speed, TIME_SPEED_MIN, TIME_SPEED_MAX)
+            }
+            onChange={(e) => {
+              const pos = Number(e.target.value)
+              const value =
+                settings.pace === 'motion'
+                  ? sliderToValue(pos, MOTION_RATE_MIN, MOTION_RATE_MAX)
+                  : sliderToValue(pos, TIME_SPEED_MIN, TIME_SPEED_MAX)
+              onSettingsChange({ speed: value })
+            }}
+            aria-label={settings.pace === 'motion' ? '再生の速さ' : '再生速度'}
+            aria-valuetext={
+              settings.pace === 'motion' ? formatRateLabel(settings.speed) : formatSpeedLabel(settings.speed)
+            }
+          />
+          <span className="playbackbar__speedValue">
+            {settings.pace === 'motion' ? formatRateLabel(settings.speed) : formatSpeedLabel(settings.speed)}
+          </span>
         </div>
       </div>
 

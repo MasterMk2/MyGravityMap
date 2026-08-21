@@ -111,6 +111,18 @@
   white-space: nowrap;
 }
 
+.playbackbar__speedSlider {
+  width: 120px;
+  accent-color: var(--accent);
+}
+
+.playbackbar__speedValue {
+  color: var(--text);
+  font-size: 12px;
+  min-width: 6ch;
+  white-space: nowrap;
+}
+
 .playbackbar__row--period {
   align-items: flex-start;
   gap: 18px;

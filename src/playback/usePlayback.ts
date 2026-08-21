@@ -163,7 +163,9 @@ export function usePlayback(dataset: Dataset | null) {
       setSettings((s) => ({
         ...s,
         pace,
-        speed: pace === 'motion' ? 1 : defaultSpeedFor(selection.end - selection.start),
+        // motion の既定倍率は 0.5（defaultPaceFor が計算した目安ペースの半分）。
+        // 等速の ×1 は多くのデータで体感的に速すぎたため、控えめな側から始める。
+        speed: pace === 'motion' ? 0.5 : defaultSpeedFor(selection.end - selection.start),
       }))
     },
     [selection],
