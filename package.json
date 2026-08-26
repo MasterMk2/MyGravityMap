@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "validate:visits": "vitest run --config vitest.validate.config.ts --reporter=verbose",
     "notices": "node scripts/gen-notices.mjs"
   },
   "dependencies": {
