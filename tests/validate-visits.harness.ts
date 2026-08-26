@@ -191,6 +191,10 @@ interface Score {
   posErrMedian: number
   posErrP75: number
   durRatioMedian: number
+  /** 「復元した」ことになった正解 ÷ それを担った derived の件数。1.0 なら 1 対 1。 */
+  absorbMean: number
+  /** 同上の最大。 */
+  absorbMax: number
 }
 
 function score(derived: Visit[], truth: Visit[]): Score {
@@ -198,21 +202,28 @@ function score(derived: Visit[], truth: Visit[]): Score {
   const posErr: number[] = []
   const durRatio: number[] = []
 
+  // 「どの derived が何件の正解を復元したことになったか」も数える。
+  // 長い隙間を 1 件の derived にすると、その中の短い正解を丸ごと覆うので
+  // 再現率だけ上がる。その水増しが見えるようにしておく。
+  const absorbed = new Map<number, number>()
+
   for (const g of truth) {
     const gLen = g.end - g.start
-    let best: Visit | undefined
+    let bestIdx = -1
     let bestOv = 0
-    for (const d of derived) {
-      const ov = overlapSec(g, d)
+    for (let i = 0; i < derived.length; i++) {
+      const ov = overlapSec(g, derived[i]!)
       if (ov > bestOv) {
         bestOv = ov
-        best = d
+        bestIdx = i
       }
     }
+    const best = bestIdx >= 0 ? derived[bestIdx]! : undefined
     if (best && gLen > 0 && bestOv / gLen >= MIN_OVERLAP_RATIO) {
       recalled += 1
       posErr.push(haversineMeters(best.lat, best.lon, g.lat, g.lon))
       durRatio.push((best.end - best.start) / gLen)
+      absorbed.set(bestIdx, (absorbed.get(bestIdx) ?? 0) + 1)
     }
   }
 
@@ -246,6 +257,8 @@ function score(derived: Visit[], truth: Visit[]): Score {
       ? [...posErr].sort((a, b) => a - b)[Math.floor(posErr.length * 0.75)]!
       : Number.NaN,
     durRatioMedian: median(durRatio),
+    absorbMean: absorbed.size ? recalled / absorbed.size : 0,
+    absorbMax: absorbed.size ? Math.max(...absorbed.values()) : 0,
   }
 }
 
@@ -350,8 +363,15 @@ describe.skipIf(!hasSample)('滞在復元パラメータの検証（未決事項
           `「位置込み」はさらにその正解との距離が ${HIT_METERS}m 以内のもの。`,
       )
       say(
-        '注: 軌跡は 30 分以上の空白で切ってあるので、隙間は必ず 30 分以上ある。' +
-          'T を 30 分より短くしても結果は変わらない（表の 15 分 / 25 分 / 30 分が同じ行になる）。',
+        '注: 軌跡は trips.ts の DEFAULT_GAP_SEC（30 分）以上の空白で切ってあるので、' +
+          '隙間は必ず 30 分以上ある。T をその閾値より短くしても結果は変わらない' +
+          '（表の 15 分 / 25 分 / 30 分が同じ行になる）。これはデータの性質ではなく' +
+          '分割閾値との関係なので、閾値を変えれば下限も動く。',
+      )
+      say(
+        '「吸収」は復元できた正解 ÷ それを担った derived の件数（平均 / 最大）。' +
+          '1.0 なら 1 対 1。長い隙間を 1 件の derived にすると中の短い滞在をまとめて覆うので、' +
+          '場所が合っていなくても再現率だけが上がる。再現率はこの数字とセットで読む。',
       )
 
       const table = (trips: Trip[], label: string) => {
@@ -360,9 +380,9 @@ describe.skipIf(!hasSample)('滞在復元パラメータの検証（未決事項
         say()
         say(
           '| T（最短滞在） | R（許容移動） | 復元件数 | 再現率 | 適合率（時間） | ' +
-            `適合率（${HIT_METERS}m 以内） | 位置誤差 中央 | 同 p75 | 滞在時間比 中央 |`,
+            `適合率（${HIT_METERS}m 以内） | 位置誤差 中央 | 同 p75 | 滞在時間比 中央 | 吸収 平均/最大 |`,
         )
-        say('|---|---|---|---|---|---|---|---|---|')
+        say('|---|---|---|---|---|---|---|---|---|---|')
         for (const t of TS) {
           for (const r of RS) {
             const d = derive(trips, t, r).filter((v) => !inFlight(v))
@@ -372,7 +392,8 @@ describe.skipIf(!hasSample)('滞在復元パラメータの検証（未決事項
               `| ${t / 60}分 | ${rLabel} | ${s.derived} | ${pct(s.recall)} | ` +
                 `${pct(s.precisionTime)} | ${pct(s.precisionPlace)} | ` +
                 `${meters(s.posErrMedian)} | ${meters(s.posErrP75)} | ` +
-                `${Number.isNaN(s.durRatioMedian) ? '-' : s.durRatioMedian.toFixed(2)} |`,
+                `${Number.isNaN(s.durRatioMedian) ? '-' : s.durRatioMedian.toFixed(2)} | ` +
+                `${s.absorbMean.toFixed(2)} / ${s.absorbMax} |`,
             )
           }
         }
