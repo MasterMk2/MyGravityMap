@@ -6,7 +6,7 @@ import { useAppStore } from './store/useAppStore'
 import { usePlayback } from './playback/usePlayback'
 import { buildPlaybackLayers } from './playback/layers'
 import { buildGravityLayers, DEFAULT_GRAVITY, type GravitySettings } from './gravity/layers'
-import { buildWeightedPoints } from './gravity/weights'
+import { buildWeightedPoints, hasVisitWeights } from './gravity/weights'
 import { FileDrop } from './ui/FileDrop'
 import { StatsPanel } from './ui/StatsPanel'
 import { PlaybackBar } from './ui/PlaybackBar'
@@ -95,12 +95,11 @@ export function App() {
     [dataset, pb.trips, pb.selection, gravity.source],
   )
 
-  // 選択中の期間に Google の訪問データがあるか（2024 年秋以降のみ存在する）
+  // 選択中の期間を「滞在」ソースで描けるか（Google の訪問データは 2024 年秋以降のみ）。
+  // 軌跡から復元した滞在は滞在時間を信用できず重力マップには載らないので、
+  // 判定は必ず weights.ts 側の条件を使う（数えたのに空、が起きないように）。
   const visitAvailable = useMemo(
-    () =>
-      (dataset?.visits ?? []).some(
-        (v) => v.start < pb.selection.end && v.end > pb.selection.start,
-      ),
+    () => hasVisitWeights(dataset?.visits ?? [], pb.selection),
     [dataset, pb.selection],
   )
 

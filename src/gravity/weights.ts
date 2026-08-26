@@ -154,14 +154,32 @@ export function trackWeights(trips: Trip[], w: TimeWindow): WeightedPoints {
 }
 
 /**
+ * その訪問を「滞在」の重みに使ってよいか。
+ *
+ * - hierarchyLevel 1 は level 0 と時間が重複する（実データで 623 件中 622 件）ので、
+ *   二重計上を避けるため level 0 のみを使う。
+ * - durationReliable でない訪問（軌跡から復元した derived）は滞在時間を数値として
+ *   信用できないので、秒数を重みにする重力マップには載せない。
+ */
+function usableAsWeight(v: Visit, w: TimeWindow): boolean {
+  return v.hierarchyLevel === 0 && v.durationReliable && overlaps(v.start, v.end, w)
+}
+
+/**
+ * その期間に「滞在」ソースで描けるものがあるか。UI の可否判定はこれを使う。
+ *
+ * visitWeights と同じ条件を通すことが要点で、条件を書き写して別々に持つと
+ * 「選べるのに中身が空」という食い違いがそのまま UI に出る。
+ */
+export function hasVisitWeights(visits: Visit[], w: TimeWindow): boolean {
+  return visits.some((v) => usableAsWeight(v, w))
+}
+
+/**
  * Google の visit を滞在秒数で重み付けする。
- * hierarchyLevel 1 は level 0 と時間が重複する（実データで 623 件中 622 件）ので、
- * 二重計上を避けるため level 0 のみを使う。
  */
 export function visitWeights(visits: Visit[], w: TimeWindow): WeightedPoints {
-  const target = visits.filter(
-    (v) => v.hierarchyLevel === 0 && v.durationReliable && overlaps(v.start, v.end, w),
-  )
+  const target = visits.filter((v) => usableAsWeight(v, w))
   if (target.length === 0) return EMPTY
 
   const positions = new Float32Array(target.length * 2)

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { aggregateToCells, trackWeights, visitWeights } from '../src/gravity/weights'
+import {
+  aggregateToCells,
+  hasVisitWeights,
+  trackWeights,
+  visitWeights,
+} from '../src/gravity/weights'
 import { heatCellMeters } from '../src/gravity/layers'
 import type { Trip, Visit } from '../src/core/types'
 
@@ -130,6 +135,24 @@ describe('visitWeights', () => {
     const derived = { ...visit(0, 3600, 0), durationReliable: false, source: 'derived' as const }
     expect(visitWeights([derived], WINDOW).count).toBe(0)
   })
+})
+
+describe('hasVisitWeights', () => {
+  // UI の「滞在」を選ばせるかどうかの判定。visitWeights が空を返す条件で true を
+  // 返してしまうと、選べるのに何も出ない状態になる。両者は必ず一致していること。
+  const cases: Array<[string, Visit[]]> = [
+    ['Google の訪問', [visit(0, 3600, 0)]],
+    ['復元した訪問だけ', [{ ...visit(0, 3600, 0), durationReliable: false, source: 'derived' }]],
+    ['hierarchyLevel 1 だけ', [visit(0, 3600, 1)]],
+    ['期間に重ならない訪問', [visit(200000, 260000, 0)]],
+    ['訪問なし', []],
+  ]
+
+  for (const [name, visits] of cases) {
+    it(`${name}: visitWeights が点を作れるときだけ true`, () => {
+      expect(hasVisitWeights(visits, WINDOW)).toBe(visitWeights(visits, WINDOW).count > 0)
+    })
+  }
 })
 
 describe('aggregateToCells', () => {
