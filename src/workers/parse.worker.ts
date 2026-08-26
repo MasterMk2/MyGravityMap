@@ -11,92 +11,12 @@
  *   トークン化するので壊れない。
  */
 import { JSONParser } from '@streamparser/json'
-import type {
-  Dataset,
-  Move,
-  ParseMessage,
-  ParseStats,
-  SemanticType,
-  TrackPoint,
-  TravelMode,
-  Visit,
-} from '../core/types'
-import { parseLatLng, parseTimeSec, tzOffsetMinFromIso } from '../core/geo'
+import type { Dataset, ParseMessage, ParseStats } from '../core/types'
+import { createSegmentCollector } from '../core/segments'
+import type { RawProfile, RawSegment } from '../core/segments'
 import { assignModes, buildTrips } from '../core/trips'
 import { aggregatePlaces, computeCoverage } from '../core/aggregate'
 import { deriveVisitsFromTrips } from '../core/visits'
-
-interface RawLatLng {
-  latLng?: string
-}
-interface RawSegment {
-  startTime?: string
-  endTime?: string
-  startTimeTimezoneUtcOffsetMinutes?: number
-  endTimeTimezoneUtcOffsetMinutes?: number
-  timelinePath?: Array<{ point?: string; time?: string }>
-  visit?: {
-    hierarchyLevel?: number
-    probability?: number
-    topCandidate?: {
-      placeId?: string
-      semanticType?: string
-      probability?: number
-      placeLocation?: RawLatLng
-    }
-  }
-  activity?: {
-    start?: RawLatLng
-    end?: RawLatLng
-    distanceMeters?: number
-    probability?: number
-    topCandidate?: { type?: string; probability?: number }
-    parking?: { location?: RawLatLng; startTime?: string }
-  }
-  timelineMemory?: unknown
-}
-
-interface RawProfile {
-  frequentPlaces?: Array<{ placeId?: string; placeLocation?: string; label?: string }>
-}
-
-const KNOWN_MODES = new Set<TravelMode>([
-  'IN_PASSENGER_VEHICLE',
-  'WALKING',
-  'IN_TRAIN',
-  'IN_BUS',
-  'IN_TRAM',
-  'IN_SUBWAY',
-  'CYCLING',
-  'MOTORCYCLING',
-  'RUNNING',
-  'FLYING',
-])
-
-const KNOWN_TYPES = new Set<SemanticType>([
-  'HOME',
-  'WORK',
-  'INFERRED_HOME',
-  'INFERRED_WORK',
-  'SEARCHED_ADDRESS',
-])
-
-function toMode(s: string | undefined): TravelMode {
-  return s && KNOWN_MODES.has(s as TravelMode) ? (s as TravelMode) : 'UNKNOWN'
-}
-
-function toSemanticType(s: string | undefined): SemanticType {
-  return s && KNOWN_TYPES.has(s as SemanticType) ? (s as SemanticType) : 'UNKNOWN'
-}
-
-/** セグメントの UTC オフセット。明示フィールドが無ければ時刻文字列から拾う */
-function segmentTz(seg: RawSegment): number {
-  if (typeof seg.startTimeTimezoneUtcOffsetMinutes === 'number') {
-    return seg.startTimeTimezoneUtcOffsetMinutes
-  }
-  if (!seg.startTime) return 0
-  return tzOffsetMinFromIso(seg.startTime) ?? 0
-}
 
 /**
  * 解析対象。通常はユーザーが選んだ File。
@@ -136,24 +56,9 @@ async function openStream(
 }
 
 async function parseSource(source: ParseSource, fileHash: string): Promise<Dataset> {
-  const points: TrackPoint[] = []
-  const visits: Visit[] = []
-  const moves: Move[] = []
-  const anchors: Dataset['anchors'] = []
-  /** 年カバレッジ用: timelinePath セグメントの開始時刻と TZ */
-  const pathBuckets: Array<[number, number]> = []
-  const visitYears = new Set<number>()
-
-  const stats: ParseStats = {
-    segments: 0,
-    timelinePathPoints: 0,
-    visitSegments: 0,
-    activitySegments: 0,
-    memorySegments: 0,
-    rawSignalsDiscarded: 0,
-    duplicateTimeFixed: 0,
-    flightPointsInserted: 0,
-  }
+  const collector = createSegmentCollector()
+  // 収集器が数えない分（rawSignals は Worker でしか通らない、残り 2 つは trip 構築の副産物）
+  let rawSignalsDiscarded = 0
 
   const parser = new JSONParser({
     // rawSignals は「数えるためだけ」に拾う。値は即座に捨てるので保持されない。
@@ -166,94 +71,17 @@ async function parseSource(source: ParseSource, fileHash: string): Promise<Datas
     const container = stack.length === 2 ? stack[1]?.key : undefined
 
     if (container === 'rawSignals') {
-      stats.rawSignalsDiscarded += 1
+      rawSignalsDiscarded += 1
       return // ★ MAC アドレスを含むため、ここから先へは絶対に渡さない
     }
 
     if (container === 'semanticSegments') {
-      ingestSegment(value as unknown as RawSegment)
+      collector.ingestSegment(value as unknown as RawSegment)
       return
     }
 
     if (stack.length === 1 && key === 'userLocationProfile') {
-      ingestProfile(value as unknown as RawProfile)
-    }
-  }
-
-  function ingestSegment(seg: RawSegment) {
-    stats.segments += 1
-
-    if (seg.timelinePath) {
-      const tz = segmentTz(seg)
-      if (seg.startTime) pathBuckets.push([parseTimeSec(seg.startTime), tz])
-      for (const p of seg.timelinePath) {
-        if (!p.point || !p.time) continue
-        const [lat, lon] = parseLatLng(p.point)
-        points.push({ t: parseTimeSec(p.time), lat, lon })
-        stats.timelinePathPoints += 1
-      }
-      return
-    }
-
-    if (seg.visit) {
-      const tc = seg.visit.topCandidate
-      const latLng = tc?.placeLocation?.latLng
-      if (!latLng || !seg.startTime || !seg.endTime) return
-      const [lat, lon] = parseLatLng(latLng)
-      const start = parseTimeSec(seg.startTime)
-      const tz = segmentTz(seg)
-      const level = seg.visit.hierarchyLevel === 1 ? 1 : 0
-      visits.push({
-        start,
-        end: parseTimeSec(seg.endTime),
-        tzOffsetMin: tz,
-        lat,
-        lon,
-        ...(tc?.placeId ? { placeId: tc.placeId } : {}),
-        semanticType: toSemanticType(tc?.semanticType),
-        hierarchyLevel: level,
-        probability: seg.visit.probability ?? 0,
-        source: 'google',
-        // Google が出した visit は滞在時間を信用してよい（DESIGN.md §1.2.1）
-        durationReliable: true,
-      })
-      visitYears.add(new Date((start + tz * 60) * 1000).getUTCFullYear())
-      stats.visitSegments += 1
-      return
-    }
-
-    if (seg.activity) {
-      const a = seg.activity
-      if (!a.start?.latLng || !a.end?.latLng || !seg.startTime || !seg.endTime) return
-      const [fromLat, fromLon] = parseLatLng(a.start.latLng)
-      const [toLat, toLon] = parseLatLng(a.end.latLng)
-      const move: Move = {
-        start: parseTimeSec(seg.startTime),
-        end: parseTimeSec(seg.endTime),
-        tzOffsetMin: segmentTz(seg),
-        from: [fromLon, fromLat],
-        to: [toLon, toLat],
-        distanceMeters: a.distanceMeters ?? 0,
-        mode: toMode(a.topCandidate?.type),
-        probability: a.probability ?? 0,
-      }
-      if (a.parking?.location?.latLng && a.parking.startTime) {
-        const [pLat, pLon] = parseLatLng(a.parking.location.latLng)
-        move.parking = { lat: pLat, lon: pLon, t: parseTimeSec(a.parking.startTime) }
-      }
-      moves.push(move)
-      stats.activitySegments += 1
-      return
-    }
-
-    if (seg.timelineMemory) stats.memorySegments += 1
-  }
-
-  function ingestProfile(profile: RawProfile) {
-    for (const fp of profile.frequentPlaces ?? []) {
-      if (!fp.placeId || !fp.placeLocation) continue
-      const [lat, lon] = parseLatLng(fp.placeLocation)
-      anchors.push({ placeId: fp.placeId, lat, lon, ...(fp.label ? { label: fp.label } : {}) })
+      collector.ingestProfile(value as unknown as RawProfile)
     }
   }
 
@@ -280,7 +108,9 @@ async function parseSource(source: ParseSource, fileHash: string): Promise<Datas
     // その後の end() は「既に終了済み」で throw するので無視してよい。
   }
 
-  if (stats.segments === 0) {
+  const { points, visits, moves, anchors, pathBuckets, visitYears, counts } = collector.result()
+
+  if (counts.segments === 0) {
     // 形式違いのファイルを黙って「0 件」で開くと、利用者は原因が分からない。
     throw new Error(
       'このファイルには semanticSegments が見つかりませんでした。' +
@@ -292,9 +122,14 @@ async function parseSource(source: ParseSource, fileHash: string): Promise<Datas
   post({ type: 'progress', phase: '軌跡を組み立て中', bytesRead: total, bytesTotal: total })
 
   const built = buildTrips(points)
-  stats.duplicateTimeFixed = built.duplicateTimeFixed
-  stats.flightPointsInserted = built.flightPointsInserted
   const trips = assignModes(built.trips, moves)
+
+  const stats: ParseStats = {
+    ...counts,
+    rawSignalsDiscarded,
+    duplicateTimeFixed: built.duplicateTimeFixed,
+    flightPointsInserted: built.flightPointsInserted,
+  }
 
   post({ type: 'progress', phase: '場所を集計中', bytesRead: total, bytesTotal: total })
 
