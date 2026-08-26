@@ -27,7 +27,7 @@ const t2025 = Math.floor(Date.UTC(2025, 5, 15) / 1000) // 2025-06-15T00:00:00Z�
 const STAY: [number, number] = [139.7, 35.1]
 /** STAY から約 36m。GPS の揺れの範囲で、留まっていたとみなせる距離。 */
 const NEAR: [number, number] = [139.7004, 35.1]
-/** STAY から約 460m。既定の R（120m）は超えるが、緩めれば通る距離。 */
+/** STAY から約 460m。既定の R（175m）は超えるが、緩めれば通る距離。 */
 const MID: [number, number] = [139.705, 35.1]
 /** STAY から約 28km。隙間のあいだに移動している。 */
 const FAR: [number, number] = [139.9, 35.3]
@@ -136,6 +136,23 @@ describe('deriveVisitsFromTrips', () => {
     expect(deriveVisitsFromTrips([tripA, tripB], [], coverage, 1200)).toEqual([])
   })
 
+  it('has the measured default maxMoveMeters (about 175m)', () => {
+    // 175m は実測で決めた値（DESIGN.md §8 の D / npm run validate:visits）。
+    // 勘で動かすと復元件数と位置精度が変わるので、境界をテストで留めておく。
+    const gapStart = t2020
+    const gapEnd = t2020 + 2 * 3600
+    const coverage = [makeCoverage(2020, false)]
+    const pair = (resume: [number, number]) => [
+      makeTrip(t2020 - 3600, gapStart, [139.6, 35.0], STAY),
+      makeTrip(gapEnd, gapEnd + 3600, resume, [140.0, 35.4]),
+    ]
+
+    // STAY から約 146m。既定なら通る
+    expect(deriveVisitsFromTrips(pair([139.7016, 35.1]), [], coverage, 1200)).toHaveLength(1)
+    // STAY から約 210m。既定では通らない
+    expect(deriveVisitsFromTrips(pair([139.7023, 35.1]), [], coverage, 1200)).toEqual([])
+  })
+
   it('honours an explicit maxMoveMeters in both directions', () => {
     const gapStart = t2020
     const gapEnd = t2020 + 2 * 3600
@@ -143,7 +160,7 @@ describe('deriveVisitsFromTrips', () => {
     const tripB = makeTrip(gapEnd, gapEnd + 3600, MID, [140.0, 35.4]) // 約460m
     const coverage = [makeCoverage(2020, false)]
 
-    // 既定の R（120m）では届かない
+    // 既定の R（175m）では届かない
     expect(deriveVisitsFromTrips([tripA, tripB], [], coverage, 1200)).toEqual([])
     // 緩めれば通る
     expect(deriveVisitsFromTrips([tripA, tripB], [], coverage, 1200, 1000)).toHaveLength(1)
