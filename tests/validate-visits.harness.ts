@@ -54,8 +54,20 @@ const MIN_OVERLAP_RATIO = 0.5
 /** 適合率（位置込み）で「同じ場所」とみなす距離。場所集約のグリッド 100m より少し緩く。 */
 const HIT_METERS = 250
 
+/** T の掃引（R は既定に固定して振る）。効かないことの確認用なので粗くてよい。 */
 const TS = [900, 1500, 1800, 3600, 7200] as const
-const RS = [60, 120, 250, 500, 1000, 2000, Number.POSITIVE_INFINITY] as const
+/** R の掃引（T は分割閾値の 30 分に固定して振る）。最適値を探すので細かく。 */
+const RS = [
+  40, 60, 80, 100, 120, 150, 175, 200, 250, 300, 350, 400, 500, 650, 800, 1000, 1500, 2000,
+  Number.POSITIVE_INFINITY,
+] as const
+
+/**
+ * 間引きの乱数シード。
+ * 1 回の間引き結果に最適値が引っ張られないよう複数回まわして平均で見る。
+ * どのバケットが落ちるかで隙間の出方は変わるので、1 本だけだとその形に過適合する。
+ */
+const SEEDS = Array.from({ length: 25 }, (_, i) => 20190101 + i * 7919)
 
 // --- データ読み込み -----------------------------------------------------------
 
@@ -186,8 +198,16 @@ interface Score {
   derived: number
   recalled: number
   recall: number
+  /** 位置込みの再現率。時間が重なるだけでなく、場所も HIT_METERS 以内で当たった割合。 */
+  recallPlace: number
+  /** 位置込みの再現率と適合率の F1。R の最適値はこれで決める。 */
+  f1Place: number
   precisionTime: number
   precisionPlace: number
+  /** 位置まで当たった derived の件数。R を緩めたときの「増えた分の質」を見るのに使う。 */
+  correct: number
+  /** 当たりと確認できなかった derived の件数（= 復元件数 − 当たり）。 */
+  wrong: number
   posErrMedian: number
   posErrP75: number
   durRatioMedian: number
@@ -199,6 +219,7 @@ interface Score {
 
 function score(derived: Visit[], truth: Visit[]): Score {
   let recalled = 0
+  let recalledPlace = 0
   const posErr: number[] = []
   const durRatio: number[] = []
 
@@ -221,9 +242,11 @@ function score(derived: Visit[], truth: Visit[]): Score {
     const best = bestIdx >= 0 ? derived[bestIdx]! : undefined
     if (best && gLen > 0 && bestOv / gLen >= MIN_OVERLAP_RATIO) {
       recalled += 1
-      posErr.push(haversineMeters(best.lat, best.lon, g.lat, g.lon))
+      const err = haversineMeters(best.lat, best.lon, g.lat, g.lon)
+      posErr.push(err)
       durRatio.push((best.end - best.start) / gLen)
       absorbed.set(bestIdx, (absorbed.get(bestIdx) ?? 0) + 1)
+      if (err <= HIT_METERS) recalledPlace += 1
     }
   }
 
@@ -246,12 +269,22 @@ function score(derived: Visit[], truth: Visit[]): Score {
     if (best && haversineMeters(d.lat, d.lon, best.lat, best.lon) <= HIT_METERS) hitsPlace += 1
   }
 
+  const recallPlace = truth.length ? recalledPlace / truth.length : 0
+  const precisionPlace = derived.length ? hitsPlace / derived.length : 0
+
   return {
     derived: derived.length,
     recalled,
     recall: truth.length ? recalled / truth.length : 0,
+    recallPlace,
+    f1Place:
+      recallPlace + precisionPlace > 0
+        ? (2 * recallPlace * precisionPlace) / (recallPlace + precisionPlace)
+        : 0,
     precisionTime: derived.length ? hitsTime / derived.length : 0,
-    precisionPlace: derived.length ? hitsPlace / derived.length : 0,
+    precisionPlace,
+    correct: hitsPlace,
+    wrong: derived.length - hitsPlace,
     posErrMedian: median(posErr),
     posErrP75: posErr.length
       ? [...posErr].sort((a, b) => a - b)[Math.floor(posErr.length * 0.75)]!
@@ -321,22 +354,28 @@ describe.skipIf(!hasSample)('滞在復元パラメータの検証（未決事項
         )
       }
 
-      const thinned = thinToDensity(collected.points, dense, sparse)
-      const thinnedDensity = densityOf(thinned.points, EVAL_YEAR)
+      // 間引きはシードごとに 1 本ずつ。どのバケットが落ちるかで隙間の出方が変わるので、
+      // 1 本だけで最適値を決めるとその形に過適合する。
+      const runs = SEEDS.map((seed) => {
+        const thinned = thinToDensity(collected.points, dense, sparse, seed)
+        return { seed, thinned, trips: buildTrips(thinned.points).trips }
+      })
+      const first = runs[0]!
+      const thinnedDensity = densityOf(first.thinned.points, EVAL_YEAR)
       say()
       say(
-        `間引き: バケットを ${(thinned.keepBucket * 100).toFixed(0)}%、` +
-          `残ったバケット内の点を ${(thinned.keepPoint * 100).toFixed(0)}% 残す。` +
-          `結果 ${dense.points} 点 → ${thinned.points.length} 点` +
+        `間引き: バケットを ${(first.thinned.keepBucket * 100).toFixed(0)}%、` +
+          `残ったバケット内の点を ${(first.thinned.keepPoint * 100).toFixed(0)}% 残す。` +
+          `結果 ${dense.points} 点 → ${first.thinned.points.length} 点` +
           `（${thinnedDensity.bucketsPerDay.toFixed(1)} バケット/日、` +
           `${thinnedDensity.pointsPerBucket.toFixed(1)} 点/バケット、` +
-          `${thinnedDensity.hoursPerDay.toFixed(1)} h/日）`,
+          `${thinnedDensity.hoursPerDay.toFixed(1)} h/日）。` +
+          `これをシードを変えて ${SEEDS.length} 本作り、表の数字は平均。`,
       )
 
       // 評価期間は「間引いた年」。飛行区間は大圏補間の合成点なので評価から外す。
       const full = buildTrips(collected.points.filter((p) => yearOf(p.t) === EVAL_YEAR))
-      const thin = buildTrips(thinned.points)
-      const flightRanges = [...full.trips, ...thin.trips]
+      const flightRanges = [...full.trips, ...runs.flatMap((r) => r.trips)]
         .filter((t) => t.isFlight)
         .map((t) => ({ start: t.tStart, end: t.tEnd }))
       const inFlight = (v: { start: number; end: number }) =>
@@ -355,7 +394,7 @@ describe.skipIf(!hasSample)('滞在復元パラメータの検証（未決事項
       say(
         `評価期間 ${EVAL_YEAR} 年: 正解の滞在 ${truth.length} 件` +
           `（hierarchyLevel 0・飛行区間を除く）、` +
-          `軌跡は間引き後 ${thin.trips.length} 本（間引き前 ${full.trips.length} 本）。`,
+          `軌跡は間引き後 ${first.trips.length} 本（間引き前 ${full.trips.length} 本）。`,
       )
       say(
         `判定基準: 正解の長さの ${MIN_OVERLAP_RATIO * 100}% 以上に重なれば復元成功。` +
@@ -374,33 +413,90 @@ describe.skipIf(!hasSample)('滞在復元パラメータの検証（未決事項
           '場所が合っていなくても再現率だけが上がる。再現率はこの数字とセットで読む。',
       )
 
-      const table = (trips: Trip[], label: string) => {
+      /** 同じ (T, R) を全シードで測って平均する。tripSets が 1 本なら平均は素の値。 */
+      const meanScore = (tripSets: Trip[][], t: number, r: number) => {
+        const ss = tripSets.map((trips) => score(derive(trips, t, r).filter((v) => !inFlight(v)), truth))
+        const avg = (pick: (s: Score) => number) =>
+          ss.reduce((a, s) => a + (Number.isNaN(pick(s)) ? 0 : pick(s)), 0) / ss.length
+        return {
+          derived: avg((s) => s.derived),
+          recall: avg((s) => s.recall),
+          recallPlace: avg((s) => s.recallPlace),
+          f1Place: avg((s) => s.f1Place),
+          f1Spread: Math.max(...ss.map((s) => s.f1Place)) - Math.min(...ss.map((s) => s.f1Place)),
+          precisionPlace: avg((s) => s.precisionPlace),
+          correct: avg((s) => s.correct),
+          wrong: avg((s) => s.wrong),
+          posErrMedian: avg((s) => s.posErrMedian),
+          durRatioMedian: avg((s) => s.durRatioMedian),
+          absorbMean: avg((s) => s.absorbMean),
+        }
+      }
+
+      const rSweep = (tripSets: Trip[][], label: string, t = 1800) => {
         say()
         say(`### ${label}`)
         say()
         say(
-          '| T（最短滞在） | R（許容移動） | 復元件数 | 再現率 | 適合率（時間） | ' +
-            `適合率（${HIT_METERS}m 以内） | 位置誤差 中央 | 同 p75 | 滞在時間比 中央 | 吸収 平均/最大 |`,
+          `| R（許容移動） | 復元件数 | 当たり | 外れ | **限界比** | 再現率（位置込み） | ` +
+            `適合率（位置込み） | F1 | 位置誤差 中央 | 滞在時間比 |`,
         )
         say('|---|---|---|---|---|---|---|---|---|---|')
-        for (const t of TS) {
-          for (const r of RS) {
-            const d = derive(trips, t, r).filter((v) => !inFlight(v))
-            const s = score(d, truth)
-            const rLabel = Number.isFinite(r) ? `${r}m` : '∞（無効化）'
-            say(
-              `| ${t / 60}分 | ${rLabel} | ${s.derived} | ${pct(s.recall)} | ` +
-                `${pct(s.precisionTime)} | ${pct(s.precisionPlace)} | ` +
-                `${meters(s.posErrMedian)} | ${meters(s.posErrP75)} | ` +
-                `${Number.isNaN(s.durRatioMedian) ? '-' : s.durRatioMedian.toFixed(2)} | ` +
-                `${s.absorbMean.toFixed(2)} / ${s.absorbMax} |`,
-            )
-          }
+        const rows = RS.map((r) => ({ r, s: meanScore(tripSets, t, r) }))
+        for (let i = 0; i < rows.length; i++) {
+          const { r, s } = rows[i]!
+          const prev = i > 0 ? rows[i - 1]!.s : undefined
+          // 限界比 = R を 1 段緩めて増えた復元のうち、当たりが外れの何倍あったか。
+          // 1.0 を割ったら「増やすほど外れの方が多い」ということ。
+          const dCorrect = prev ? s.correct - prev.correct : Number.NaN
+          const dWrong = prev ? s.wrong - prev.wrong : Number.NaN
+          const marginal = prev && dWrong > 0 ? dCorrect / dWrong : Number.NaN
+          const rLabel = Number.isFinite(r) ? `${r}m` : '∞（無効化）'
+          say(
+            `| ${rLabel} | ${s.derived.toFixed(0)} | ${s.correct.toFixed(0)} | ${s.wrong.toFixed(0)} | ` +
+              `**${Number.isNaN(marginal) ? '-' : marginal.toFixed(2)}** | ` +
+              `${pct(s.recallPlace)} | ${pct(s.precisionPlace)} | ` +
+              `${(s.f1Place * 100).toFixed(1)} | ` +
+              `${meters(s.posErrMedian)} | ${s.durRatioMedian.toFixed(2)} |`,
+          )
         }
+        return rows
       }
 
-      table(thin.trips, `${REF_YEAR} 年の密度まで間引いた ${EVAL_YEAR} 年（本命）`)
-      table(full.trips, `参考: 間引かない ${EVAL_YEAR} 年（記録が濃いまま）`)
+      const thinSets = runs.map((r) => r.trips)
+      const rows = rSweep(thinSets, `R の掃引（T = 30 分固定・${SEEDS.length} シード平均）`)
+
+      // 「限界比が 1 を割る手前」が、緩めても損にならない上限。
+      let lastGood = rows[0]!.r
+      for (let i = 1; i < rows.length; i++) {
+        const dC = rows[i]!.s.correct - rows[i - 1]!.s.correct
+        const dW = rows[i]!.s.wrong - rows[i - 1]!.s.wrong
+        if (dW > 0 && dC / dW < 1) break
+        lastGood = rows[i]!.r
+      }
+      say()
+      say(
+        `**限界比が 1 を保てる上限は R = ${Number.isFinite(lastGood) ? `${lastGood}m` : '∞'}。**` +
+          'ここまでは R を緩めるほど「当たりの増加 ≧ 外れの増加」で、' +
+          'これを超えると増える復元の方が外れが多くなる。' +
+          'F1 は R を緩めるほど単調に上がるが、それは再現率の増分が適合率の減分を' +
+          '上回るだけで、最適値の指標にはならない（距離判定なしが常に勝ってしまう）。',
+      )
+
+      say()
+      say(`### T の掃引（R = 既定の 120m 固定・${SEEDS.length} シード平均）`)
+      say()
+      say('| T（最短滞在） | 復元件数 | 再現率（位置込み） | 適合率（位置込み） | F1 |')
+      say('|---|---|---|---|---|')
+      for (const t of TS) {
+        const s = meanScore(thinSets, t, 120)
+        say(
+          `| ${t / 60}分 | ${s.derived.toFixed(0)} | ${pct(s.recallPlace)} | ` +
+            `${pct(s.precisionPlace)} | ${(s.f1Place * 100).toFixed(1)} |`,
+        )
+      }
+
+      rSweep([full.trips], `参考: 間引かない ${EVAL_YEAR} 年（記録が濃いまま・T = 30 分）`)
 
       say()
       console.log('\n' + lines.join('\n') + '\n')
