@@ -1,0 +1,155 @@
+/* --- 重心の変遷 / 遠征（左パネルの中に入る。中身の幅は約 290px） --- */
+/* 表・切り替えボタンは App.css の .coverage / .segmented をそのまま使い、ここでは差分だけ足す */
+
+.geo-view {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.geo-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.geo-heading {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.geo-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.geo-toggle input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.geo-swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+
+/* 行ごとに地図の重心へ飛べる */
+.geo-table tbody tr {
+  cursor: pointer;
+}
+
+.geo-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.geo-table tbody tr.is-active {
+  background: rgba(94, 234, 212, 0.14);
+}
+
+.geo-table tbody tr:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.geo-shifts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.geo-shifts li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 1px 0;
+}
+
+.geo-shifts span:last-child {
+  color: var(--muted);
+}
+
+/* --- 遠征の一覧 --- */
+.exped-summary {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.exped-summary em {
+  font-style: normal;
+  color: var(--accent);
+}
+
+.exped-year {
+  display: flex;
+  justify-content: space-between;
+  margin: 6px 0 2px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.exped-year strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.exped-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.exped-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 8px;
+  width: 100%;
+  padding: 4px 4px;
+  text-align: left;
+  font-size: 13px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+}
+
+.exped-row.is-active {
+  background: rgba(94, 234, 212, 0.14);
+}
+
+.exped-date {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.exped-days {
+  color: var(--muted);
+}
+
+.exped-flight {
+  color: var(--accent);
+}
+
+.exped-meta {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.exped-empty {
+  margin: 8px 0;
+  color: var(--muted);
+}
