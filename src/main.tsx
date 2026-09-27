@@ -23,6 +23,18 @@ if (import.meta.env.DEV) {
   }
 }
 
+// 本番だけ Service Worker を入れる（一度開けばオフラインでも起動できるように）。
+// 開発時に入れると、HMR の更新より古いキャッシュが勝って混乱する。
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register(`${import.meta.env.BASE_URL}sw.js?v=${__BUILD_ID__}`, { scope: import.meta.env.BASE_URL })
+      .catch(() => {
+        // 登録できなくてもアプリ自体は動く（オフラインで開けないだけ）
+      })
+  })
+}
+
 const root = document.getElementById('root')
 if (!root) throw new Error('#root が見つかりません')
 

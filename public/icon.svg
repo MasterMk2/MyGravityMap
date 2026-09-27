@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- 重力井戸: 中心ほど白く光る塊と、その周りを回る軌道。配色は重力マップの六角柱と揃えてある -->
+  <defs>
+    <radialGradient id="well" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#fffff5"/>
+      <stop offset="0.16" stop-color="#d6f082"/>
+      <stop offset="0.42" stop-color="#2dc398" stop-opacity="0.85"/>
+      <stop offset="0.75" stop-color="#1a928c" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#145c6e" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#0b0d12"/>
+  <circle cx="256" cy="256" r="190" fill="url(#well)"/>
+  <g fill="none" stroke="#5eead4" stroke-width="10" stroke-linecap="round">
+    <ellipse cx="256" cy="256" rx="200" ry="84" transform="rotate(-24 256 256)" stroke-opacity="0.55"/>
+  </g>
+  <circle cx="432" cy="178" r="16" fill="#fffff5"/>
+</svg>

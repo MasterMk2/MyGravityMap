@@ -5,9 +5,13 @@ import react from '@vitejs/plugin-react'
 // 例: BASE_PATH=/MyGravityMap/ npm run build
 const base = process.env.BASE_PATH ?? '/'
 
+// Service Worker の版。デプロイごとに変わればよいので、CI ではコミットの SHA、手元では時刻を使う
+const buildId = process.env.GITHUB_SHA?.slice(0, 12) ?? Date.now().toString(36)
+
 export default defineConfig({
   base,
   plugins: [react()],
+  define: { __BUILD_ID__: JSON.stringify(buildId) },
   // ★ maplibre-gl を事前バンドルさせない。
   // maplibre はベクタタイル解析用の Worker を
   //   new URL('./maplibre-gl-worker.mjs', import.meta.url)
