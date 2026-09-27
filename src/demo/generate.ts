@@ -38,8 +38,11 @@ export const DEMO_SEED = 20190401
  */
 export const DEMO_VERSION = 1
 
-/** Dataset.fileName に入る名前。画面の「読み込んだファイル」欄にそのまま出る */
-export const DEMO_FILE_NAME = 'デモデータ（架空の人物）'
+/**
+ * Dataset.fileName に入る名前。画面の「読み込んだファイル」欄にそのまま出る。
+ * 見出しには「デモ」の札が前に付くので、名前の側では「デモ」と繰り返さない。
+ */
+export const DEMO_FILE_NAME = '架空の人物（札幌）'
 
 /**
  * この日（日本時間 0 時）から Google の visit / activity が出て、軌跡も濃くなる。
