@@ -3,7 +3,7 @@ import { useAppStore } from '../store/useAppStore'
 import { HowToExport, LicenseLinks, LicenseText, PrivacyNote } from './About'
 
 export function FileDrop() {
-  const { status, phase, progress, error, loadFile, reset } = useAppStore()
+  const { status, phase, progress, error, loadFile, loadDemo, reset } = useAppStore()
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
 
@@ -49,6 +49,13 @@ export function FileDrop() {
               hidden
               onChange={(e) => onFiles(e.target.files)}
             />
+            {/* 自分のエクスポートが無い人向け。実在の人の記録と誤解されないよう、架空であることを並べて書く */}
+            <div style={{ marginTop: 14 }}>
+              <button onClick={() => void loadDemo()}>デモデータで試す</button>
+              <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--muted)' }}>
+                架空の人物の約 7 年分。実在の人のデータではありません
+              </p>
+            </div>
           </>
         )}
 

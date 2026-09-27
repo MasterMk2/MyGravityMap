@@ -2,7 +2,23 @@ import { create } from 'zustand'
 import type { Dataset, ParseMessage } from '../core/types'
 import { PIPELINE_VERSION } from '../core/types'
 import type { ParseSource } from '../workers/parse.worker'
+import { DEMO_SEED, DEMO_VERSION } from '../demo/generate'
 import { fileFingerprint, loadDataset, saveDataset } from './db'
+
+const DEMO_HASH_PREFIX = 'demo:'
+
+/**
+ * デモの解析結果のキャッシュキー（Dataset.fileHash）。
+ * 生成器の版とパイプラインの版を両方混ぜておき、どちらかが変われば作り直させる。
+ */
+export function demoFileHash(seed: number = DEMO_SEED): string {
+  return `${DEMO_HASH_PREFIX}${seed}:v${DEMO_VERSION}:p${PIPELINE_VERSION}`
+}
+
+/** 架空の人物のデモデータか。画面で「デモ」と明示するために使う（実在の人の記録と誤解させない） */
+export function isDemoDataset(d: Pick<Dataset, 'fileHash'>): boolean {
+  return d.fileHash.startsWith(DEMO_HASH_PREFIX)
+}
 
 export type Status = 'idle' | 'hashing' | 'parsing' | 'ready' | 'error'
 
@@ -17,6 +33,8 @@ interface AppState {
   loadFile: (file: File) => Promise<void>
   /** 開発時のみ: dev サーバ経由でリポジトリ内のファイルを直接読む */
   loadDevUrl: (url: string) => Promise<void>
+  /** 架空の人物の合成データ（約 7 年分）を読み込む。自分のエクスポートが無い人向け */
+  loadDemo: () => Promise<void>
   reset: () => void
 }
 
@@ -46,6 +64,15 @@ export const useAppStore = create<AppState>((set) => ({
     try {
       const name = url.split('/').pop() ?? url
       await run({ kind: 'url', url, name }, `dev:${url}:p${PIPELINE_VERSION}`, set)
+    } catch (err) {
+      set({ status: 'error', error: err instanceof Error ? err.message : String(err) })
+    }
+  },
+
+  loadDemo: async () => {
+    set({ status: 'hashing', phase: 'デモデータを準備中', progress: 0, error: null })
+    try {
+      await run({ kind: 'demo', seed: DEMO_SEED }, demoFileHash(DEMO_SEED), set)
     } catch (err) {
       set({ status: 'error', error: err instanceof Error ? err.message : String(err) })
     }

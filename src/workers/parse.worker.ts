@@ -15,15 +15,31 @@ import type { Dataset, ParseMessage } from '../core/types'
 import { createSegmentCollector } from '../core/segments'
 import type { RawProfile, RawSegment } from '../core/segments'
 import { buildDataset } from '../core/pipeline'
+import { DEMO_FILE_NAME, generateDemoHistory } from '../demo/generate'
 
 /**
  * 解析対象。通常はユーザーが選んだ File。
  * `url` は開発時だけ使う（dev サーバがリポジトリ内のファイルを配信できるため、
  * 手でファイル選択せずに動作確認できる）。本番ビルドでは呼ばれない。
+ * `demo` は架空の人物の合成データ（DESIGN.md §8 C / src/demo/generate.ts）。
+ * ファイルは読まずに Worker の中で生成し、実ファイルと同じ収集器と後段を通す。
  */
 export type ParseSource =
   | { kind: 'file'; file: File }
   | { kind: 'url'; url: string; name: string }
+  | { kind: 'demo'; seed: number }
+
+type StreamSource = Exclude<ParseSource, { kind: 'demo' }>
+type Collector = ReturnType<typeof createSegmentCollector>
+
+/** 入力を収集器へ流し終えた時点の情報。ここから先（Dataset の組み立て）は入力の種類によらず共通 */
+interface Ingested {
+  fileName: string
+  /** 読み飛ばした rawSignals の件数（収集器は通らないので入力側で数える） */
+  rawSignalsDiscarded: number
+  /** 進捗の分母。ファイルならバイト数、デモならセグメント数 */
+  progressTotal: number
+}
 
 self.onmessage = async (
   ev: MessageEvent<{ source: ParseSource; fileHash: string }>,
@@ -42,7 +58,7 @@ function post(m: ParseMessage) {
 }
 
 async function openStream(
-  source: ParseSource,
+  source: StreamSource,
 ): Promise<{ stream: ReadableStream<Uint8Array>; size: number; name: string }> {
   if (source.kind === 'file') {
     return { stream: source.file.stream(), size: source.file.size, name: source.file.name }
@@ -55,7 +71,54 @@ async function openStream(
 
 async function parseSource(source: ParseSource, fileHash: string): Promise<Dataset> {
   const collector = createSegmentCollector()
-  // 収集器が数えない分（rawSignals は Worker でしか通らない、残り 2 つは trip 構築の副産物）
+  const { fileName, rawSignalsDiscarded, progressTotal } =
+    source.kind === 'demo' ? ingestDemo(source.seed, collector) : await ingestStream(source, collector)
+
+  const collected = collector.result()
+
+  if (collected.counts.segments === 0) {
+    // 形式違いのファイルを黙って「0 件」で開くと、利用者は原因が分からない。
+    throw new Error(
+      'このファイルには semanticSegments が見つかりませんでした。' +
+        'Google マップアプリから書き出した新しい形式のタイムライン（location-history.json / タイムライン.json）を選んでください。' +
+        'Google データエクスポート（Takeout）の古い形式（Records.json や「セマンティック ロケーション履歴」フォルダ）にはまだ対応していません。',
+    )
+  }
+
+  return buildDataset({
+    collected,
+    fileHash,
+    fileName,
+    rawSignalsDiscarded,
+    parsedAt: Math.floor(Date.now() / 1000),
+    onPhase: (phase) => post({ type: 'progress', phase, bytesRead: progressTotal, bytesTotal: progressTotal }),
+  })
+}
+
+/**
+ * 合成データを生成して収集器へ流す。生成結果はすでにオブジェクトなので、
+ * JSON 文字列を経由せずにそのまま渡す（形式は Google の生の JSON と同じ）。
+ */
+function ingestDemo(seed: number, collector: Collector): Ingested {
+  post({ type: 'progress', phase: 'デモデータを生成中', bytesRead: 0, bytesTotal: 1 })
+  const history = generateDemoHistory(seed)
+  const segments = history.semanticSegments
+  const total = segments.length
+  let lastPost = 0
+  for (let i = 0; i < total; i++) {
+    collector.ingestSegment(segments[i])
+    const now = Date.now()
+    if (now - lastPost > 120) {
+      lastPost = now
+      post({ type: 'progress', phase: 'デモデータを読み込み中', bytesRead: i + 1, bytesTotal: total })
+    }
+  }
+  collector.ingestProfile(history.userLocationProfile)
+  // rawSignals は合成していない（理由は src/demo/generate.ts の冒頭）
+  return { fileName: DEMO_FILE_NAME, rawSignalsDiscarded: 0, progressTotal: total }
+}
+
+async function ingestStream(source: StreamSource, collector: Collector): Promise<Ingested> {
   let rawSignalsDiscarded = 0
 
   const parser = new JSONParser({
@@ -106,23 +169,5 @@ async function parseSource(source: ParseSource, fileHash: string): Promise<Datas
     // その後の end() は「既に終了済み」で throw するので無視してよい。
   }
 
-  const collected = collector.result()
-
-  if (collected.counts.segments === 0) {
-    // 形式違いのファイルを黙って「0 件」で開くと、利用者は原因が分からない。
-    throw new Error(
-      'このファイルには semanticSegments が見つかりませんでした。' +
-        'Google マップアプリから書き出した新しい形式のタイムライン（location-history.json / タイムライン.json）を選んでください。' +
-        'Google データエクスポート（Takeout）の古い形式（Records.json や「セマンティック ロケーション履歴」フォルダ）にはまだ対応していません。',
-    )
-  }
-
-  return buildDataset({
-    collected,
-    fileHash,
-    fileName,
-    rawSignalsDiscarded,
-    parsedAt: Math.floor(Date.now() / 1000),
-    onPhase: (phase) => post({ type: 'progress', phase, bytesRead: total, bytesTotal: total }),
-  })
+  return { fileName, rawSignalsDiscarded, progressTotal: total }
 }
