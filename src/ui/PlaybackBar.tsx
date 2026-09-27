@@ -17,6 +17,8 @@ export interface PlaybackBarProps {
   currentTime: number
   /** スクラブ操作。0..1 の割合で渡す */
   onScrub: (fraction: number) => void
+  /** コマ送り。実時刻で days 日ぶん進める（負なら戻す） */
+  onStepDays: (days: number) => void
   /** 再生位置の 0..1 の割合(圧縮時間軸上の位置。currentTime から計算してはいけない) */
   progress: number
 
@@ -192,6 +194,7 @@ export function PlaybackBar(props: PlaybackBarProps): JSX.Element {
     onPlayingChange,
     currentTime,
     onScrub,
+    onStepDays,
     progress,
     settings,
     onSettingsChange,
@@ -268,11 +271,41 @@ export function PlaybackBar(props: PlaybackBarProps): JSX.Element {
           <button
             type="button"
             className="playbackbar__iconBtn"
+            aria-label="1 日戻す"
+            title="1 日戻す（← キー。Shift で 1 週間）"
+            onClick={() => onStepDays(-1)}
+          >
+            ◂
+          </button>
+          <button
+            type="button"
+            className="playbackbar__iconBtn"
             aria-label={playing ? '一時停止' : '再生'}
+            title={playing ? '一時停止（Space）' : '再生（Space）'}
             aria-pressed={playing}
             onClick={() => onPlayingChange(!playing)}
           >
             {playing ? '⏸' : '▶'}
+          </button>
+          <button
+            type="button"
+            className="playbackbar__iconBtn"
+            aria-label="1 日進める"
+            title="1 日進める（→ キー。Shift で 1 週間）"
+            onClick={() => onStepDays(1)}
+          >
+            ▸
+          </button>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={settings.loop}
+            className={`playbackbar__iconBtn playbackbar__loop${settings.loop ? ' is-active' : ''}`}
+            aria-label="ループ再生"
+            title={settings.loop ? 'ループ再生: オン（末尾で先頭に戻る）' : 'ループ再生: オフ（末尾で止まる）'}
+            onClick={() => onSettingsChange({ loop: !settings.loop })}
+          >
+            ⟲
           </button>
         </div>
 

@@ -40,6 +40,7 @@ const DEFAULT_SETTINGS: PlaybackSettings = {
   trail: 'both',
   trailLengthSec: 6 * 3600,
   skipGaps: true,
+  loop: true,
   colorBy: 'year',
   lineWidth: 1.5,
   opacity: 0.8,
@@ -137,16 +138,45 @@ export function usePlayback(dataset: Dataset | null) {
     const tick = (now: number) => {
       const dt = (now - last.current) / 1000
       last.current = now
-      setPos((p) => advance(p, dt, settings.speed, timeMap, true))
+      setPos((p) => advance(p, dt, settings.speed, timeMap, settings.loop))
       raf.current = requestAnimationFrame(tick)
     }
     raf.current = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf.current)
-  }, [playing, settings.speed, timeMap])
+  }, [playing, settings.speed, settings.loop, timeMap])
+
+  // ループしない設定では、末尾に着いたら止める（止めないと rAF が空回りし続ける）
+  const atEnd = timeMap.totalSec > 0 && pos >= timeMap.totalSec
+  useEffect(() => {
+    if (playing && !settings.loop && atEnd) setPlaying(false)
+  }, [playing, settings.loop, atEnd])
+
+  /** 再生ボタン。末尾で止まっているときに押したら先頭から流し直す */
+  const changePlaying = useCallback(
+    (p: boolean) => {
+      if (p && atEnd) setPos(0)
+      setPlaying(p)
+    },
+    [atEnd],
+  )
 
   const scrub = useCallback(
     (fraction: number) => setPos(Math.max(0, Math.min(1, fraction)) * timeMap.totalSec),
     [timeMap],
+  )
+
+  /**
+   * コマ送り。実時刻で days 日ぶん進める（負なら戻す）。
+   * 圧縮時間軸（空白スキップ・動きモード）の上で足すと「1 日」の長さが場所によって
+   * 変わってしまうので、実時刻に直してから足して、圧縮時間へ戻す。
+   */
+  const stepDays = useCallback(
+    (days: number) => {
+      const real = timeMap.toReal(pos) + days * 86400
+      const clamped = Math.max(selection.start, Math.min(selection.end, real))
+      setPos(Math.max(0, Math.min(timeMap.totalSec, timeMap.toCompressed(clamped))))
+    },
+    [timeMap, pos, selection],
   )
 
   const changeSettings = useCallback(
@@ -192,7 +222,8 @@ export function usePlayback(dataset: Dataset | null) {
     changeSettings,
     changePace,
     playing,
-    setPlaying,
+    setPlaying: changePlaying,
+    stepDays,
     pos,
     progress,
     scrub,

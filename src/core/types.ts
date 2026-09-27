@@ -211,6 +211,8 @@ export interface PlaybackSettings {
   trailLengthSec: number
   /** 記録の無い期間を飛ばす */
   skipGaps: boolean
+  /** 末尾まで来たら先頭へ戻って再生を続ける。false なら末尾で止まる */
+  loop: boolean
   colorBy: 'single' | 'mode' | 'year' | 'speed' | 'hour'
   lineWidth: number
   opacity: number

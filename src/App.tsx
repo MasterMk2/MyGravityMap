@@ -20,19 +20,6 @@ export function App() {
   // UI の格納。地図だけを大きく見たいときのため。h キーで両方まとめて切り替える。
   const [showPanel, setShowPanel] = useState(true)
   const [showBar, setShowBar] = useState(true)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'h' && e.key !== 'H') return
-      const el = e.target as HTMLElement | null
-      // 入力中の h を奪わない
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
-      const hide = showPanel || showBar
-      setShowPanel(!hide)
-      setShowBar(!hide)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [showPanel, showBar])
   const mapRef = useRef<MapCanvasHandle>(null)
 
   // 下の再生バーの高さを測って CSS 変数に流す。
@@ -74,6 +61,40 @@ export function App() {
 
   const pb = usePlayback(dataset)
 
+  /*
+   * キーボード操作。h: UI をまとめて畳む / Space: 再生・一時停止 / ← →: 1 日（Shift で 1 週間）。
+   * 入力欄・ボタン・スライダーにフォーカスがあるときは奪わない
+   * （Space はボタンを押す、矢印はスライダーを動かす、が本来の動きなので）。
+   */
+  const { playing, setPlaying, stepDays } = pb
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      // window や document に直接届いたイベントでは target が要素ではない
+      const el = e.target instanceof HTMLElement ? e.target : null
+      const tag = el?.tagName
+      if (el && (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable)) return
+      if (e.key === 'h' || e.key === 'H') {
+        const hide = showPanel || showBar
+        setShowPanel(!hide)
+        setShowBar(!hide)
+        return
+      }
+      if (useAppStore.getState().status !== 'ready' || tag === 'BUTTON') return
+      // 地図にフォーカスがあるときの矢印は地図のスクロール（MapLibre の標準操作）に譲る
+      if (el?.closest('.maplibregl-map') && e.key.startsWith('Arrow')) return
+      if (e.key === ' ') {
+        e.preventDefault()
+        setPlaying(!playing)
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault()
+        stepDays((e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 7 : 1))
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showPanel, showBar, playing, setPlaying, stepDays])
+
   const [gravity, setGravity] = useState<GravitySettings>(DEFAULT_GRAVITY)
 
   /*
@@ -90,9 +111,11 @@ export function App() {
   const changeGravity = (patch: Partial<GravitySettings>) =>
     setGravity((g) => ({ ...g, ...patch }))
 
+  // 日数モードはマスごとに日を数えるので粒度が変わると数え直す。他のモードでは粒度に依存しない
+  const dayCellMeters = gravity.source === 'days' ? gravity.radiusMeters : 0
   const gravityPoints = useMemo(
-    () => buildWeightedPoints(dataset, pb.trips, pb.selection, gravity.source),
-    [dataset, pb.trips, pb.selection, gravity.source],
+    () => buildWeightedPoints(dataset, pb.trips, pb.selection, gravity.source, dayCellMeters),
+    [dataset, pb.trips, pb.selection, gravity.source, dayCellMeters],
   )
 
   // 選択中の期間を「滞在」ソースで描けるか（Google の訪問データは 2024 年秋以降のみ）。
@@ -229,6 +252,7 @@ export function App() {
               onPlayingChange={pb.setPlaying}
               currentTime={pb.currentTime}
               onScrub={pb.scrub}
+              onStepDays={pb.stepDays}
               progress={pb.progress}
               settings={pb.settings}
               onSettingsChange={pb.changeSettings}

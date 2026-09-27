@@ -48,6 +48,16 @@
   padding: 6px 10px;
 }
 
+/* ループは「切り替え」なので、オフのときは沈めてオンと見分けられるようにする */
+.playbackbar__loop {
+  color: var(--muted);
+}
+
+.playbackbar__loop.is-active {
+  color: var(--accent);
+  border-color: rgba(94, 234, 212, 0.5);
+}
+
 .playbackbar__scrub {
   flex: 1 1 160px;
   min-width: 140px;
