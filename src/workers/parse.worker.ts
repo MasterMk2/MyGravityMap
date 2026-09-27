@@ -11,12 +11,10 @@
  *   トークン化するので壊れない。
  */
 import { JSONParser } from '@streamparser/json'
-import type { Dataset, ParseMessage, ParseStats } from '../core/types'
+import type { Dataset, ParseMessage } from '../core/types'
 import { createSegmentCollector } from '../core/segments'
 import type { RawProfile, RawSegment } from '../core/segments'
-import { assignModes, buildTrips } from '../core/trips'
-import { aggregatePlaces, computeCoverage } from '../core/aggregate'
-import { deriveVisitsFromTrips } from '../core/visits'
+import { buildDataset } from '../core/pipeline'
 
 /**
  * 解析対象。通常はユーザーが選んだ File。
@@ -108,9 +106,9 @@ async function parseSource(source: ParseSource, fileHash: string): Promise<Datas
     // その後の end() は「既に終了済み」で throw するので無視してよい。
   }
 
-  const { points, visits, moves, anchors, pathBuckets, visitYears, counts } = collector.result()
+  const collected = collector.result()
 
-  if (counts.segments === 0) {
+  if (collected.counts.segments === 0) {
     // 形式違いのファイルを黙って「0 件」で開くと、利用者は原因が分からない。
     throw new Error(
       'このファイルには semanticSegments が見つかりませんでした。' +
@@ -119,50 +117,12 @@ async function parseSource(source: ParseSource, fileHash: string): Promise<Datas
     )
   }
 
-  post({ type: 'progress', phase: '軌跡を組み立て中', bytesRead: total, bytesTotal: total })
-
-  const built = buildTrips(points)
-  const trips = assignModes(built.trips, moves)
-
-  const stats: ParseStats = {
-    ...counts,
-    rawSignalsDiscarded,
-    duplicateTimeFixed: built.duplicateTimeFixed,
-    flightPointsInserted: built.flightPointsInserted,
-  }
-
-  post({ type: 'progress', phase: '場所を集計中', bytesRead: total, bytesTotal: total })
-
-  // coverage は Google の訪問データが無い年を判定するために使うので、
-  // 訪問の復元（deriveVisitsFromTrips）より先に求めておく必要がある。
-  const coverage = computeCoverage({ pathBuckets, visitYears })
-  const derivedVisits = deriveVisitsFromTrips(trips, visits, coverage)
-  const allVisits = [...visits, ...derivedVisits]
-  const { places } = aggregatePlaces(allVisits)
-
-  const times = [
-    ...trips.map((t) => t.tStart),
-    ...allVisits.map((v) => v.start),
-    ...moves.map((m) => m.start),
-  ]
-  const ends = [
-    ...trips.map((t) => t.tEnd),
-    ...allVisits.map((v) => v.end),
-    ...moves.map((m) => m.end),
-  ]
-
-  return {
+  return buildDataset({
+    collected,
     fileHash,
     fileName,
+    rawSignalsDiscarded,
     parsedAt: Math.floor(Date.now() / 1000),
-    tMin: times.length ? Math.min(...times) : 0,
-    tMax: ends.length ? Math.max(...ends) : 0,
-    trips,
-    visits: allVisits,
-    moves,
-    places,
-    coverage,
-    anchors,
-    stats,
-  }
+    onPhase: (phase) => post({ type: 'progress', phase, bytesRead: total, bytesTotal: total }),
+  })
 }

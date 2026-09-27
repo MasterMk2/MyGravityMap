@@ -8,7 +8,7 @@
  * 分割規則や補間規則を変えたらここを上げる。IndexedDB のキャッシュキーに混ぜてあるので、
  * 古い解析結果が再利用されず自動的に解析し直される。
  */
-export const PIPELINE_VERSION = 2
+export const PIPELINE_VERSION = 3
 
 /** 交通手段。Google の activity.topCandidate.type をそのまま使う */
 export type TravelMode =
@@ -145,6 +145,11 @@ export interface Dataset {
   coverage: YearCoverage[]
   /** userLocationProfile.frequentPlaces の HOME / WORK */
   anchors: { placeId: string; lat: number; lon: number; label?: string }[]
+  /**
+   * UTC オフセットの切り替わり点 [時刻, tzOffsetMin]（時刻昇順）。
+   * Trip は TZ を持たないので、軌跡を暦日・時間帯で数えるときは core/timezone.ts 経由でこれを引く。
+   */
+  tzChanges: Array<[Seconds, number]>
   stats: ParseStats
 }
 

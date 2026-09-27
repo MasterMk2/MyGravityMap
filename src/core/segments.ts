@@ -54,6 +54,11 @@ export interface CollectedSegments {
   pathBuckets: Array<[number, number]>
   /** Google の visit がある年（記録側 TZ の暦年） */
   visitYears: Set<number>
+  /**
+   * UTC オフセットの切り替わり点 [時刻, tzOffsetMin]。時刻昇順で、直前と同じオフセットは詰めてある。
+   * 軌跡の点（Trip）は TZ を持たないので、暦日や時間帯を記録側の時刻で数えるときはこれを引く。
+   */
+  tzChanges: Array<[number, number]>
   counts: {
     segments: number
     timelinePathPoints: number
@@ -102,6 +107,19 @@ function segmentTz(seg: RawSegment): number {
 }
 
 /**
+ * [時刻, TZ] を時刻順に並べ、オフセットが変わった点だけを残す。
+ * セグメントは約 2 万件あるが、TZ が変わるのは海外へ出入りしたときだけなので数十件に縮む。
+ */
+function compressTz(entries: Array<[number, number]>): Array<[number, number]> {
+  const sorted = [...entries].sort((a, b) => a[0] - b[0])
+  const out: Array<[number, number]> = []
+  for (const e of sorted) {
+    if (out.length === 0 || out[out.length - 1]![1] !== e[1]) out.push(e)
+  }
+  return out
+}
+
+/**
  * セグメントを 1 件ずつ受け取って積み上げる収集器。
  * 呼び出し側がストリームから読んだ順に ingestSegment を呼び、最後に result() を取る。
  */
@@ -112,6 +130,8 @@ export function createSegmentCollector() {
   const anchors: CollectedSegments['anchors'] = []
   const pathBuckets: Array<[number, number]> = []
   const visitYears = new Set<number>()
+  /** セグメントの開始時刻と TZ。種別を問わず全部控えて、result() で切り替わり点に詰める */
+  const segmentTzs: Array<[number, number]> = []
   const counts = {
     segments: 0,
     timelinePathPoints: 0,
@@ -122,6 +142,7 @@ export function createSegmentCollector() {
 
   function ingestSegment(seg: RawSegment): void {
     counts.segments += 1
+    if (seg.startTime) segmentTzs.push([parseTimeSec(seg.startTime), segmentTz(seg)])
 
     if (seg.timelinePath) {
       const tz = segmentTz(seg)
@@ -198,7 +219,7 @@ export function createSegmentCollector() {
   }
 
   function result(): CollectedSegments {
-    return { points, visits, moves, anchors, pathBuckets, visitYears, counts }
+    return { points, visits, moves, anchors, pathBuckets, visitYears, tzChanges: compressTz(segmentTzs), counts }
   }
 
   return { ingestSegment, ingestProfile, result }
