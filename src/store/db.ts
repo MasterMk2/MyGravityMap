@@ -112,6 +112,16 @@ export async function setLabel(placeId: string, label: string): Promise<void> {
   await db.put('labels', record)
 }
 
+/**
+ * ラベルを消して、自動ラベル（自宅・職場など）や「場所 #n」の表示に戻す。
+ * 空文字を保存して「消えたことにする」と、getAllLabels に空のラベルが混ざり続けるので、
+ * レコードごと削除する。無いキーを消してもエラーにはならない。
+ */
+export async function deleteLabel(placeId: string): Promise<void> {
+  const db = await getDb()
+  await db.delete('labels', placeId)
+}
+
 export async function getAllLabels(): Promise<Record<string, string>> {
   const db = await getDb()
   const all = await db.getAll('labels')
