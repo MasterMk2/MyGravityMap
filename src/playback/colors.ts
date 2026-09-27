@@ -1,5 +1,6 @@
 import type { PlaybackSettings, TravelMode, Trip } from '../core/types'
 import { haversineMeters } from '../core/geo'
+import type { TzLookup } from '../core/timezone'
 
 export type RGB = [number, number, number]
 
@@ -66,6 +67,8 @@ export function computeTripColors(
   colorBy: PlaybackSettings['colorBy'],
   minYear: number,
   maxYear: number,
+  /** 記録側の UTC オフセット。年・時間帯を現地の暦で数えるのに使う（省略時は UTC） */
+  tzOf: TzLookup = () => 0,
 ): Uint8Array {
   const out = new Uint8Array(trips.length * 3)
   const span = Math.max(1, maxYear - minYear)
@@ -78,7 +81,7 @@ export function computeTripColors(
         c = MODE_COLORS[t.mode] ?? MODE_COLORS.UNKNOWN
         break
       case 'year': {
-        const year = new Date(t.tStart * 1000).getUTCFullYear()
+        const year = new Date((t.tStart + tzOf(t.tStart) * 60) * 1000).getUTCFullYear()
         c = hsl(((year - minYear) / span) * 280, 0.75, 0.58)
         break
       }
@@ -90,8 +93,8 @@ export function computeTripColors(
         break
       }
       case 'hour': {
-        // 記録側のタイムゾーンではなく UTC 基準の粗い色分け（P2 で TZ 対応する）
-        const h = new Date(t.tStart * 1000).getUTCHours()
+        // 記録側の時刻で数える（海外滞在中の朝が、日本時間の夜の色にならないように）
+        const h = new Date((t.tStart + tzOf(t.tStart) * 60) * 1000).getUTCHours()
         c = hsl((h / 24) * 360, 0.7, 0.6)
         break
       }

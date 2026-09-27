@@ -10,6 +10,7 @@ import type { CollectedSegments } from './segments'
 import { assignModes, buildTrips } from './trips'
 import { aggregatePlaces, computeCoverage } from './aggregate'
 import { deriveVisitsFromTrips } from './visits'
+import { createTzLookup } from './timezone'
 
 export interface BuildDatasetInput {
   collected: CollectedSegments
@@ -44,7 +45,13 @@ export function buildDataset(input: BuildDatasetInput): Dataset {
   // coverage は Google の訪問データが無い年を判定するために使うので、
   // 訪問の復元（deriveVisitsFromTrips）より先に求めておく必要がある。
   const coverage = computeCoverage({ pathBuckets, visitYears })
-  const derivedVisits = deriveVisitsFromTrips(trips, visits, coverage)
+  // 復元した滞在は TZ を持たずに作られる（軌跡の点に TZ が無いため）。そのままだと
+  // 暦日・時間帯が UTC で数えられ、再生中の時計も UTC になるので、記録側の TZ を入れ直す。
+  const tzOf = createTzLookup(tzChanges)
+  const derivedVisits = deriveVisitsFromTrips(trips, visits, coverage).map((v) => ({
+    ...v,
+    tzOffsetMin: tzOf(v.start),
+  }))
   const allVisits = [...visits, ...derivedVisits]
   const { places } = aggregatePlaces(allVisits)
 

@@ -12,6 +12,7 @@ import {
   rebaseTimes,
 } from '../core/playback'
 import { computeTripColors } from './colors'
+import { createTzLookup } from '../core/timezone'
 import { positionAt } from './position'
 
 /** 空白とみなす最小の長さ。これ以上あいたら「記録が無い区間」として詰められる */
@@ -96,9 +97,10 @@ export function usePlayback(dataset: Dataset | null) {
     return { min: ys.length ? Math.min(...ys) : 2018, max: ys.length ? Math.max(...ys) : 2026 }
   }, [dataset])
 
+  const tzOf = useMemo(() => createTzLookup(dataset?.tzChanges ?? []), [dataset])
   const colors = useMemo(
-    () => computeTripColors(trips, settings.colorBy, years.min, years.max),
-    [trips, settings.colorBy, years.min, years.max],
+    () => computeTripColors(trips, settings.colorBy, years.min, years.max, tzOf),
+    [trips, settings.colorBy, years.min, years.max, tzOf],
   )
 
   const currentTime = timeMap.toReal(pos)
@@ -112,22 +114,12 @@ export function usePlayback(dataset: Dataset | null) {
     [dataset, currentTime],
   )
 
-  /** 表示用のタイムゾーン。記録側のオフセットを使う（海外滞在中は現地時刻になる） */
-  const tzOffsetMin = useMemo(() => {
-    if (activeVisit) return activeVisit.tzOffsetMin
-    const visits = dataset?.visits
-    if (!visits || visits.length === 0) return 0
-    let best = visits[0]!
-    let bestDiff = Math.abs(best.start - currentTime)
-    for (const v of visits) {
-      const d = Math.abs(v.start - currentTime)
-      if (d < bestDiff) {
-        best = v
-        bestDiff = d
-      }
-    }
-    return best.tzOffsetMin
-  }, [activeVisit, dataset, currentTime])
+  /**
+   * 表示用のタイムゾーン。記録側のオフセットを使う（海外滞在中は現地時刻になる）。
+   * 以前は近くの訪問の TZ を借りていたが、軌跡から復元した訪問は TZ を持たないので
+   * 2024 年より前は UTC で表示されていた。全セグメントの切り替わり点から引く。
+   */
+  const tzOffsetMin = useMemo(() => tzOf(currentTime), [tzOf, currentTime])
 
   // 再生ループ
   const raf = useRef(0)

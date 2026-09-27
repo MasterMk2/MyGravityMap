@@ -92,3 +92,30 @@ describe('buildDataset', () => {
     expect(phases.length).toBeGreaterThan(0)
   })
 })
+
+describe('buildDataset: 復元した滞在の TZ', () => {
+  it('軌跡から復元した滞在に記録側の TZ を入れる（UTC のままにしない）', () => {
+    const c = createSegmentCollector()
+    const seg = (h: number, lat: string) => ({
+      startTime: `2020-06-15T${String(h).padStart(2, '0')}:00:00.000+09:00`,
+      endTime: `2020-06-15T${String(h + 1).padStart(2, '0')}:00:00.000+09:00`,
+      timelinePath: [
+        { point: `${lat}°, 139.7000000°`, time: `2020-06-15T${String(h).padStart(2, '0')}:05:00.000+09:00` },
+        { point: `${lat}°, 139.7000100°`, time: `2020-06-15T${String(h).padStart(2, '0')}:15:00.000+09:00` },
+      ],
+    })
+    // 08 時台と 12 時台の間に 3 時間以上の空白（同じ場所）→ 滞在として復元される
+    c.ingestSegment(seg(8, '35.1000000'))
+    c.ingestSegment(seg(12, '35.1000100'))
+    const d = buildDataset({
+      collected: c.result(),
+      fileHash: 'h',
+      fileName: 'f.json',
+      rawSignalsDiscarded: 0,
+      parsedAt: 0,
+    })
+    const derived = d.visits.filter((v) => v.source === 'derived')
+    expect(derived).toHaveLength(1)
+    expect(derived[0]!.tzOffsetMin).toBe(540)
+  })
+})
