@@ -11,12 +11,17 @@ interface Props {
 
 const MODES: Array<{ value: GravityMode; label: string; hint: string }> = [
   { value: 'off', label: 'オフ', hint: '重力マップを表示しない' },
-  { value: 'heat', label: 'ヒート', hint: '滞在時間の多い場所を色の濃さで示す' },
-  { value: 'hex', label: '六角柱', hint: '滞在時間を柱の高さで示す（3D）' },
+  { value: 'heat', label: 'ヒート', hint: 'よく居た場所を色の濃さで示す' },
+  { value: 'hex', label: '六角柱', hint: 'よく居た場所を柱の高さで示す（3D）' },
   { value: 'both', label: '両方', hint: 'ヒートマップの上に柱を重ねる' },
 ]
 
 const SOURCES: Array<{ value: GravitySource; label: string; hint: string }> = [
+  {
+    value: 'days',
+    label: '日数',
+    hint: 'その場所に居た日数（同じ日の再訪は 1 日）。記録の濃さに左右されにくく、全期間を比べられる',
+  },
   {
     value: 'track',
     label: '軌跡',
@@ -141,7 +146,15 @@ export function GravityControls({ settings, onChange, points, visitAvailable }: 
           </label>
 
           <p className="gravity__stat">
-            {nf.format(points.count)} 点 / 合計 {hours(points.totalSeconds)}
+            {points.unit === 'days'
+              ? `${nf.format(points.count)} マス / 延べ ${nf.format(points.total)} 日`
+              : `${nf.format(points.count)} 点 / 合計 ${hours(points.total)}`}
+            {settings.source === 'days' && (
+              <span className="gravity__note">
+                居た日数（同じ日の再訪は 1 日）。止まっていた軌跡の点と訪問から数えるので、
+                年をまたいでも比べやすい
+              </span>
+            )}
             {settings.source === 'track' && (
               <span className="gravity__note">
                 軌跡からの推定。年により記録の濃さが違うので、年をまたぐ比較には向きません

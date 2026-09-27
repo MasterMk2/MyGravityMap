@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   aggregateToCells,
+  dayWeights,
   hasVisitWeights,
   trackWeights,
   visitWeights,
@@ -105,7 +106,7 @@ describe('trackWeights', () => {
   it('合計秒数は重みの合計と一致する', () => {
     const t = trip([139.7, 35.1, 139.8, 35.2, 139.9, 35.3], [0, 300, 900])
     const w = trackWeights([t], WINDOW)
-    expect(w.totalSeconds).toBeCloseTo(
+    expect(w.total).toBeCloseTo(
       [...w.weights].reduce((a, b) => a + b, 0),
       1,
     )
@@ -118,12 +119,12 @@ describe('visitWeights', () => {
     const visits = [visit(0, 3600, 0), visit(0, 3600, 1)]
     const w = visitWeights(visits, WINDOW)
     expect(w.count).toBe(1)
-    expect(w.totalSeconds).toBe(3600)
+    expect(w.total).toBe(3600)
   })
 
   it('期間からはみ出した分は数えない', () => {
     const w = visitWeights([visit(0, 3600, 0)], { start: 1800, end: 100000 })
-    expect(w.totalSeconds).toBe(1800)
+    expect(w.total).toBe(1800)
   })
 
   it('期間に重ならない訪問は落とす', () => {
@@ -160,7 +161,8 @@ describe('aggregateToCells', () => {
     positions: new Float32Array(coords),
     weights: new Float32Array(weights),
     count: weights.length,
-    totalSeconds: weights.reduce((a, b) => a + b, 0),
+    total: weights.reduce((a, b) => a + b, 0),
+    unit: 'seconds' as const,
   })
 
   it('近い点は 1 マスにまとまり、重みは足される', () => {
@@ -189,7 +191,7 @@ describe('aggregateToCells', () => {
   it('合計滞在時間は保存される', () => {
     const p = pts([139.7, 35.1, 139.71, 35.1, 139.7001, 35.1], [600, 900, 300])
     const cells = aggregateToCells(p, 150)
-    expect(cells.totalSeconds).toBe(1800)
+    expect(cells.total).toBe(1800)
   })
 
   it('点が無ければ空を返す', () => {
@@ -226,5 +228,59 @@ describe('heatCellMeters', () => {
 
   it('高緯度ではマスが小さくなる（1 画素あたりの距離が縮むため）', () => {
     expect(heatCellMeters(100, 10, 60)).toBeLessThanOrEqual(heatCellMeters(100, 10, 0))
+  })
+})
+
+describe('dayWeights（頻度モード）', () => {
+  // JST 固定の TZ。2025-01-01 00:00 JST = 1735657200
+  const tz540 = () => 540
+  const D0 = 1735657200
+  const W = { start: D0 - 86400 * 10, end: D0 + 86400 * 10 }
+
+  it('同じ日の再訪は 1 日、別の日なら 2 日と数える', () => {
+    const vs = [
+      visit(D0 + 3600, D0 + 7200, 0),
+      visit(D0 + 36000, D0 + 40000, 0), // 同じ日にもう一度
+      visit(D0 + 86400 + 3600, D0 + 86400 + 7200, 0), // 翌日
+    ]
+    const w = dayWeights([], vs, W, tz540, 250)
+    expect(w.unit).toBe('days')
+    expect(w.count).toBe(1)
+    expect(w.weights[0]).toBe(2)
+    expect(w.total).toBe(2)
+  })
+
+  it('泊まりの滞在は、またいだ日をすべて数える', () => {
+    // 1 日目 20:00 〜 3 日目 08:00（3 暦日にまたがる）
+    const w = dayWeights([], [visit(D0 + 72000, D0 + 86400 * 2 + 28800, 0)], W, tz540, 250)
+    expect(w.weights[0]).toBe(3)
+  })
+
+  it('level 1 の訪問は数えない（level 0 と時間が重なる親レコードのため）', () => {
+    const w = dayWeights([], [visit(D0 + 3600, D0 + 7200, 1)], W, tz540, 250)
+    expect(w.count).toBe(0)
+    expect(w.unit).toBe('days')
+  })
+
+  it('止まっていた軌跡の点だけを数え、移動中の点は数えない', () => {
+    // 1 点目→2 点目: 10 分で約 20m（止まっている）。2 点目→3 点目: 10 分で約 9km（移動中）
+    const t = trip([139.7, 35.1, 139.7002, 35.1001, 139.8, 35.1001], [D0 + 3600, D0 + 4200, D0 + 4800])
+    const w = dayWeights([t], [], W, tz540, 250)
+    expect(w.count).toBe(1)
+    expect(w.positions[0]).toBeCloseTo(139.7, 3)
+  })
+
+  it('暦日は記録側の TZ で切る（UTC では同じ日でも現地では別の日）', () => {
+    // UTC 14:30 と 15:30 は UTC では同日だが、JST では 23:30 と翌 00:30
+    // （D0 は JST の 0 時 = UTC の 15:00）
+    const base = D0 - 1800
+    const t = trip([139.7, 35.1, 139.7001, 35.1, 139.7002, 35.1], [base, base + 3600, base + 7200])
+    const w = dayWeights([t], [], W, tz540, 250)
+    expect(w.weights[0]).toBe(2)
+  })
+
+  it('期間外は数えない', () => {
+    const w = dayWeights([], [visit(D0 + 3600, D0 + 7200, 0)], { start: D0 + 86400, end: D0 + 86400 * 2 }, tz540, 250)
+    expect(w.count).toBe(0)
   })
 })

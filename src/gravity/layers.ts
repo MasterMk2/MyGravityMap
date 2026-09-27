@@ -18,7 +18,8 @@ export interface GravitySettings {
 
 export const DEFAULT_GRAVITY: GravitySettings = {
   mode: 'off',
-  source: 'track',
+  // 設計どおり頻度モード（日数）を既定にする。記録の濃さが年で違っても比べられるため
+  source: 'days',
   radiusMeters: 250,
   // ヒートマップの色は「重み ÷ 最大値」の線形なので、1 だと弱い側が
   // 色の最下段に張り付く。3 なら最大値の 1/3 で白まで届く。
@@ -131,14 +132,17 @@ const indexCache = new WeakMap<Float32Array, number[]>()
 const heatCache = new WeakMap<Float32Array, Map<number, WeightedPoints>>()
 
 /**
- * 滞在時間 → 表示用の重み。分に直してから log1p を取る。
+ * 重み → 表示用の値。秒なら分に直してから log1p を取る。
  *
  * 自宅は他の場所より 3〜4 桁大きいので、線形のままだと自宅以外が
  * すべて最小色に潰れる。対数にすると「1 時間 と 10 時間 と 100 時間」が
  * 等間隔に並び、たまにしか行かない場所も見えるようになる。
+ *
+ * 日数はそのまま log1p を取る。分に直す割り算を日数にも掛けると、
+ * 1 日（=1/60）がほぼ 0 に潰れて、一度きりの場所が消えてしまう。
  */
-function toLog(seconds: number, contrast: number): number {
-  return Math.pow(Math.log1p(seconds / 60), contrast)
+function toLog(value: number, contrast: number, unit: WeightedPoints['unit']): number {
+  return Math.pow(Math.log1p(unit === 'days' ? value : value / 60), contrast)
 }
 
 /** ヒートマップ用に格子へまとめた点（格子サイズごとにキャッシュ） */
@@ -154,9 +158,10 @@ function heatPoints(points: WeightedPoints, cellMeters: number, contrast: number
   const cells = aggregateToCells(points, cellMeters)
   const logged: WeightedPoints = {
     positions: cells.positions,
-    weights: cells.weights.map((w) => toLog(w, contrast)),
+    weights: cells.weights.map((w) => toLog(w, contrast, cells.unit)),
     count: cells.count,
-    totalSeconds: cells.totalSeconds,
+    total: cells.total,
+    unit: cells.unit,
   }
   byCell.set(key, logged)
   return logged
@@ -181,11 +186,11 @@ export function buildGravityLayers(input: GravityLayerInput): Layer[] {
     points.positions[i * 2] ?? 0,
     points.positions[i * 2 + 1] ?? 0,
   ]
-  /** ビンの合計滞在秒数を対数に写す。集計の「後」に掛けるのが肝 */
+  /** ビンの合計（秒または日数）を対数に写す。集計の「後」に掛けるのが肝 */
   const logOfBin = (bin: number[]) => {
     let sum = 0
     for (const i of bin) sum += points.weights[i] ?? 0
-    return toLog(sum, contrast)
+    return toLog(sum, contrast, points.unit)
   }
 
   if (mode === 'heat' || mode === 'both') {

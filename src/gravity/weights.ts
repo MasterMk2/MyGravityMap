@@ -5,32 +5,40 @@
  * 表現が違うだけで測っているものは同じ、という状態にしておかないと、
  * 2 つの絵を並べたときに読み方が変わってしまう。
  *
- * 元データは 2 通り:
+ * 元データは 3 通り:
  *
+ * - 日数（既定。DESIGN.md §2 の頻度モード）: その場所に居た「日数」。同じ日の再訪は 1 日に丸める。
+ *   記録の濃さ（2019 年は 1 日 6 時間分、2025 年は 15 時間分）に左右されにくいので、
+ *   全期間を同じ土俵で比べられる。これだけは重みの単位が秒ではなく日。
  * - 軌跡（timelinePath 由来）: 全期間で使えるが、点の間隔から滞在時間を
  *   推定するので粗い。年ごとに記録の濃さが違う点にも注意（DESIGN.md §1.2.1）。
  * - 滞在（Google の visit）: 滞在時間そのものなので正確だが、
  *   2024 年秋以降にしか存在しない。
  */
 import type { Dataset, TimeWindow, Trip, Visit } from '../core/types'
-import { haversineMeters } from '../core/geo'
+import { haversineMeters, localDayKey } from '../core/geo'
+import { createTzLookup, type TzLookup } from '../core/timezone'
 
-export type GravitySource = 'track' | 'visit'
+export type GravitySource = 'days' | 'track' | 'visit'
 
 export interface WeightedPoints {
   /** [lon, lat, lon, lat, ...] */
   positions: Float32Array
-  /** 各点が表す秒数 */
+  /** 各点の重み。単位は unit */
   weights: Float32Array
   count: number
-  totalSeconds: number
+  /** 重みの合計（unit の単位。日数なら延べ日数） */
+  total: number
+  /** 'seconds': 居た秒数 / 'days': 居た日数 */
+  unit: 'seconds' | 'days'
 }
 
 const EMPTY: WeightedPoints = {
   positions: new Float32Array(0),
   weights: new Float32Array(0),
   count: 0,
-  totalSeconds: 0,
+  total: 0,
+  unit: 'seconds',
 }
 
 /**
@@ -149,7 +157,8 @@ export function trackWeights(trips: Trip[], w: TimeWindow): WeightedPoints {
     positions,
     weights: Float32Array.from(weights),
     count: weights.length,
-    totalSeconds: seconds,
+    total: seconds,
+    unit: 'seconds',
   }
 }
 
@@ -195,7 +204,7 @@ export function visitWeights(visits: Visit[], w: TimeWindow): WeightedPoints {
     seconds += s
   })
 
-  return { positions, weights, count: target.length, totalSeconds: seconds }
+  return { positions, weights, count: target.length, total: seconds, unit: 'seconds' }
 }
 
 /**
@@ -210,16 +219,13 @@ export function visitWeights(visits: Visit[], w: TimeWindow): WeightedPoints {
 export function aggregateToCells(points: WeightedPoints, cellMeters: number): WeightedPoints {
   if (points.count === 0) return EMPTY
 
-  const latStep = cellMeters / 111_320
   const cells = new Map<string, { lon: number; lat: number; w: number }>()
 
   for (let i = 0; i < points.count; i++) {
     const lon = points.positions[i * 2]!
     const lat = points.positions[i * 2 + 1]!
     const w = points.weights[i]!
-    // 経度の刻みは緯度で縮む。高緯度でマスが横に伸びないように補正する。
-    const lonStep = cellMeters / (111_320 * Math.max(0.05, Math.cos((lat * Math.PI) / 180)))
-    const key = `${Math.round(lat / latStep)}:${Math.round(lon / lonStep)}`
+    const key = cellKey(lat, lon, cellMeters)
     const cell = cells.get(key)
     if (cell) {
       cell.lon += lon * w
@@ -233,7 +239,7 @@ export function aggregateToCells(points: WeightedPoints, cellMeters: number): We
   const positions = new Float32Array(cells.size * 2)
   const weights = new Float32Array(cells.size)
   let i = 0
-  let totalSeconds = 0
+  let total = 0
   for (const c of cells.values()) {
     // 重み 0 の点しか無いマスは重心が出せないので中心をそのまま使えない。
     // 実際には weights は必ず正だが、念のため 0 除算を避ける。
@@ -241,11 +247,112 @@ export function aggregateToCells(points: WeightedPoints, cellMeters: number): We
     positions[i * 2] = c.lon / d
     positions[i * 2 + 1] = c.lat / d
     weights[i] = c.w
-    totalSeconds += c.w
+    total += c.w
     i++
   }
 
-  return { positions, weights, count: cells.size, totalSeconds }
+  return { positions, weights, count: cells.size, total, unit: points.unit }
+}
+
+/** 等面積の格子のキー。経度の刻みは緯度で縮むので、高緯度でマスが横に伸びないように補正する */
+function cellKey(lat: number, lon: number, cellMeters: number): string {
+  const latStep = cellMeters / 111_320
+  const lonStep = cellMeters / (111_320 * Math.max(0.05, Math.cos((lat * Math.PI) / 180)))
+  return `${Math.round(lat / latStep)}:${Math.round(lon / lonStep)}`
+}
+
+/**
+ * 「居た」とみなす軌跡の点の速さの上限（km/h）。
+ *
+ * 日数モードは「通った」ではなく「居た」を数えたい。すべての点を数えると、
+ * 毎日通る通勤路が自宅と同じだけ重くなる。次の点までの平均速度がこれ未満の点だけを
+ * 滞在の点とみなす（徒歩は 4〜5 km/h なので、歩いている途中は数えない）。
+ */
+const STAY_MAX_KMH = 2
+
+/** 速さを信用する最短の間隔。数秒おきの点は位置のぶれで速度が暴れる */
+const STAY_MIN_DT_SEC = 120
+
+/** 1 件の訪問から数える日数の上限。壊れた長大な訪問で暴走しないように */
+const MAX_DAYS_PER_VISIT = 62
+
+/**
+ * 格子のマスごとに「居た日数」を数える（頻度モード）。
+ *
+ * 1 マス × 1 日（記録側の暦日）を 1 回だけ数える。材料は 2 つ:
+ * - 訪問（hierarchyLevel 0。Google 由来も軌跡から復元した derived も使う）。
+ *   derived は滞在時間こそ信用できないが、「その日そこに居た」事実は使える（DESIGN.md §1.2.1）。
+ * - 軌跡の点のうち、ほぼ止まっていた点（STAY_MAX_KMH）。
+ *
+ * 位置は数えた点の平均。重みは日数（unit: 'days'）。
+ * 六角柱やヒートマップでさらに粗いマスへ束ねると、束ねたマスどうしの日数を足すので
+ * 「延べ日数」になる（同じ日に隣のマスにも居れば 2 と数える）。
+ */
+export function dayWeights(
+  trips: Trip[],
+  visits: Visit[],
+  w: TimeWindow,
+  tzOf: TzLookup,
+  cellMeters: number,
+): WeightedPoints {
+  const cells = new Map<string, { lon: number; lat: number; n: number; days: Set<string> }>()
+
+  const add = (lon: number, lat: number, day: string) => {
+    const key = cellKey(lat, lon, cellMeters)
+    let c = cells.get(key)
+    if (!c) cells.set(key, (c = { lon: 0, lat: 0, n: 0, days: new Set() }))
+    c.lon += lon
+    c.lat += lat
+    c.n += 1
+    c.days.add(day)
+  }
+
+  for (const v of visits) {
+    if (v.hierarchyLevel !== 0 || !overlaps(v.start, v.end, w)) continue
+    // Google の訪問は自分の TZ を持っている。derived は持っていないので引く。
+    const tz = v.source === 'google' ? v.tzOffsetMin : tzOf(v.start)
+    const from = Math.max(v.start, w.start)
+    const to = Math.min(v.end, w.end)
+    let day = localDayKey(from, tz)
+    add(v.lon, v.lat, day)
+    // 日をまたぐ滞在（泊まり）は、またいだ日もすべて数える
+    for (let t = from + 86400, k = 1; t < to && k < MAX_DAYS_PER_VISIT; t += 86400, k++) {
+      day = localDayKey(t, tz)
+      add(v.lon, v.lat, day)
+    }
+    const last = localDayKey(Math.max(from, to - 1), tz)
+    if (last !== day) add(v.lon, v.lat, last)
+  }
+
+  for (const trip of trips) {
+    const len = trip.times.length
+    for (let i = 0; i + 1 < len; i++) {
+      const t = trip.times[i]!
+      if (t < w.start || t > w.end) continue
+      const dt = trip.times[i + 1]! - t
+      if (dt < STAY_MIN_DT_SEC) continue
+      const lon = trip.coords[i * 2]!
+      const lat = trip.coords[i * 2 + 1]!
+      const meters = haversineMeters(lat, lon, trip.coords[(i + 1) * 2 + 1]!, trip.coords[(i + 1) * 2]!)
+      if (meters / 1000 / (dt / 3600) >= STAY_MAX_KMH) continue
+      add(lon, lat, localDayKey(t, tzOf(t)))
+    }
+  }
+
+  if (cells.size === 0) return { ...EMPTY, unit: 'days' }
+
+  const positions = new Float32Array(cells.size * 2)
+  const weights = new Float32Array(cells.size)
+  let i = 0
+  let total = 0
+  for (const c of cells.values()) {
+    positions[i * 2] = c.lon / c.n
+    positions[i * 2 + 1] = c.lat / c.n
+    weights[i] = c.days.size
+    total += c.days.size
+    i++
+  }
+  return { positions, weights, count: cells.size, total, unit: 'days' }
 }
 
 export function buildWeightedPoints(
@@ -253,7 +360,13 @@ export function buildWeightedPoints(
   trips: Trip[],
   window: TimeWindow,
   source: GravitySource,
+  /** 日数モードで日を数えるマスの大きさ（メートル）。粒度と揃える */
+  cellMeters: number,
 ): WeightedPoints {
   if (!dataset) return EMPTY
-  return source === 'visit' ? visitWeights(dataset.visits, window) : trackWeights(trips, window)
+  if (source === 'visit') return visitWeights(dataset.visits, window)
+  if (source === 'days') {
+    return dayWeights(trips, dataset.visits, window, createTzLookup(dataset.tzChanges), cellMeters)
+  }
+  return trackWeights(trips, window)
 }
