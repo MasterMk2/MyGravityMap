@@ -19,6 +19,7 @@ import {
   type PlaceSort,
 } from '../core/ranking'
 import { useLabels } from '../store/labels'
+import { GEOCODE_BATCH, usePlaceNames } from '../store/placeNames'
 import './PlacesView.css'
 
 interface Props {
@@ -71,6 +72,17 @@ export function PlacesView({ dataset, selection, onFocus }: Props) {
     void load()
   }, [load])
 
+  // 地名（任意機能）。保存済みの分は通信なしで読める
+  const geoNames = usePlaceNames((s) => s.names)
+  const geoProgress = usePlaceNames((s) => s.progress)
+  const geoError = usePlaceNames((s) => s.error)
+  const loadGeo = usePlaceNames((s) => s.load)
+  const resolveGeo = usePlaceNames((s) => s.resolve)
+  const cancelGeo = usePlaceNames((s) => s.cancel)
+  useEffect(() => {
+    void loadGeo()
+  }, [loadGeo])
+
   const [sortBy, setSortBy] = useState<PlaceSort>('days')
   const [editing, setEditing] = useState<string | null>(null)
   /** キーボードで編集を終えたら ✎ にフォーカスを戻す（どこまで操作したか見失わないように） */
@@ -89,6 +101,22 @@ export function PlacesView({ dataset, selection, onFocus }: Props) {
   const sort: PlaceSort = sortBy === 'time' && !timeAvailable ? 'days' : sortBy
   const ranked = useMemo(() => sortPlaces(inWindow, sort), [inWindow, sort])
   const rows = ranked.slice(0, MAX_ROWS)
+
+  // 地名を調べる対象: 利用者のラベルも自動ラベルも無く、まだ問い合わせていない行
+  const unnamed = rows.filter(
+    (p, i) => placeName(p, i + 1, labels, dataset.anchors).kind === 'fallback' && !(p.id in geoNames),
+  )
+  const lookupNames = () => {
+    const n = Math.min(GEOCODE_BATCH, unnamed.length)
+    const ok = window.confirm(
+      `名前の無い上位 ${n} か所の座標を OpenStreetMap（Nominatim）に送り、地名を問い合わせます。\n\n` +
+        '・送るのは各場所の緯度経度だけです（日時・滞在時間・回数は送りません）\n' +
+        '・1 秒に 1 件ずつ問い合わせます\n' +
+        '・結果はこの端末に保存し、同じ場所は二度と問い合わせません\n\n' +
+        '自宅などの座標も外部に送ることになります。よろしいですか？',
+    )
+    if (ok) void resolveGeo(unnamed)
+  }
 
   const finishEdit = (id: string, value: string | null, via: 'key' | 'blur') => {
     if (value !== null) void setLabel(id, value)
@@ -132,7 +160,7 @@ export function PlacesView({ dataset, selection, onFocus }: Props) {
         <ol className="placesView__list">
           {rows.map((p, i) => {
             const rank = i + 1
-            const name = placeName(p, rank, labels, dataset.anchors)
+            const name = placeName(p, rank, labels, dataset.anchors, geoNames)
             return (
               <li key={p.id} className="placesView__item">
                 {editing === p.id ? (
@@ -141,7 +169,7 @@ export function PlacesView({ dataset, selection, onFocus }: Props) {
                     <LabelInput
                       initial={labels[p.id] ?? ''}
                       // 空にして保存したときに戻る名前を見せておく
-                      placeholder={placeName(p, rank, NO_LABELS, dataset.anchors).text}
+                      placeholder={placeName(p, rank, NO_LABELS, dataset.anchors, geoNames).text}
                       onDone={(value, via) => finishEdit(p.id, value, via)}
                     />
                   </>
@@ -158,6 +186,11 @@ export function PlacesView({ dataset, selection, onFocus }: Props) {
                           <span className="placesView__name">{name.text}</span>
                           {name.kind === 'fallback' && (
                             <span className="placesView__coord">{coordHint(p)}</span>
+                          )}
+                          {name.kind === 'geo' && (
+                            <span className="placesView__coord" title="OpenStreetMap から取得した地名">
+                              OSM
+                            </span>
                           )}
                           {isDerivedOnly(p) && (
                             <span
@@ -194,6 +227,33 @@ export function PlacesView({ dataset, selection, onFocus }: Props) {
       )}
 
       {labelError && <p className="placesView__note warn">ラベルを保存できませんでした: {labelError}</p>}
+
+      <div className="placesView__geo">
+        {geoProgress ? (
+          <>
+            <span>
+              地名を問い合わせ中… {geoProgress[0]} / {geoProgress[1]}
+            </span>
+            <button type="button" onClick={cancelGeo}>
+              中止
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            disabled={unnamed.length === 0}
+            onClick={lookupNames}
+            title="名前の無い場所の座標を OpenStreetMap に送って地名を調べます（押したときだけ通信します）"
+          >
+            地名を調べる（OpenStreetMap）
+          </button>
+        )}
+        {geoError && <span className="warn">{geoError}</span>}
+      </div>
+      <p className="placesView__note">
+        地名は押したときだけ、名前の無い上位 {GEOCODE_BATCH} か所まで問い合わせます。
+        地名データ © OpenStreetMap contributors
+      </p>
       <p className="placesView__note">
         ✎ で名前を付けられます。ラベルはこの端末のブラウザにだけ保存されます
       </p>

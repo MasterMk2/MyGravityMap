@@ -170,3 +170,19 @@
 .exportGeo .warn {
   color: var(--warn);
 }
+
+/* 地名の問い合わせ（任意機能）。押したときだけ通信することが分かる位置に置く */
+.placesView__geo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.placesView__geo button {
+  padding: 3px 8px;
+  font-size: 12px;
+}

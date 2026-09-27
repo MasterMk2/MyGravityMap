@@ -125,22 +125,26 @@ export function coordHint(place: Pick<Place, 'lat' | 'lon'>): string {
 export interface PlaceName {
   text: string
   /** 名前の出どころ。UI で「名前なし」の行にだけ座標の目安を添えるために使う */
-  kind: 'user' | 'auto' | 'fallback'
+  kind: 'user' | 'auto' | 'geo' | 'fallback'
 }
 
 /**
- * 表示名。利用者のラベル > 自動ラベル > 「場所 #順位」。
+ * 表示名。利用者のラベル > 自動ラベル > 地名（Nominatim） > 「場所 #順位」。
  * placeId は Google 内部の識別子で、見ても何の場所か分からないので表示に使わない。
+ * 自宅・職場は住所より「自宅」の方が意味が通るので、地名より自動ラベルを優先する。
  */
 export function placeName(
   place: Place,
   rank: number,
   labels: Record<string, string>,
   anchors: Anchors,
+  geoNames?: Record<string, string>,
 ): PlaceName {
   const user = labels[place.id]?.trim()
   if (user) return { text: user, kind: 'user' }
   const auto = autoLabel(place, anchors)
   if (auto) return { text: auto, kind: 'auto' }
+  const geo = geoNames?.[place.id]?.trim()
+  if (geo) return { text: geo, kind: 'geo' }
   return { text: `場所 #${rank}`, kind: 'fallback' }
 }
