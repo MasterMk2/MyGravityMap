@@ -1,0 +1,172 @@
+/* --- 場所ランキング（views/PlacesView.tsx）と GeoJSON 書き出し（views/ExportButtons.tsx） --- */
+/* パネルの中身の幅は約 290px。1 行に詰めると数字が名前を押し出すので、名前と数字は 2 段に分ける */
+
+.placesView {
+  display: grid;
+  gap: 6px;
+}
+
+.placesView p {
+  margin: 0;
+}
+
+.placesView__hint,
+.placesView__count,
+.placesView__note,
+.placesView__empty {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.placesView__note.warn {
+  color: var(--warn);
+}
+
+.placesView__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.placesView__item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 42px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.placesView__row {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 2px;
+  font-size: 13px;
+}
+
+.placesView__rank {
+  flex: none;
+  width: 2.2em;
+  text-align: right;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.placesView__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.placesView__nameLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.placesView__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.placesView__coord {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 推定（軌跡から復元した滞在だけ）の場所。データの質の注意なので --warn の系統にする */
+.placesView__badge {
+  flex: none;
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 16px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  border-radius: 999px;
+  color: var(--warn);
+}
+
+.placesView__meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.placesView__meta .is-key {
+  color: var(--text);
+}
+
+.placesView__edit {
+  flex: none;
+  padding: 2px 7px;
+  font-size: 13px;
+  color: var(--muted);
+  background: none;
+  border-color: transparent;
+}
+
+.placesView__edit:hover:not(:disabled),
+.placesView__edit:focus-visible {
+  color: var(--accent);
+}
+
+.placesView__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 4px 2px 4px 6px;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(94, 234, 212, 0.5);
+  border-radius: 6px;
+  outline: none;
+}
+
+.placesView__input::placeholder {
+  color: var(--muted);
+}
+
+/* --- GeoJSON 書き出し --- */
+.exportGeo {
+  display: grid;
+  gap: 6px;
+}
+
+.exportGeo p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.exportGeo__buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.exportGeo__buttons button {
+  flex: 1;
+  padding: 4px 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.exportGeo .warn {
+  color: var(--warn);
+}

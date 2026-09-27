@@ -5,13 +5,68 @@
  * fake-indexeddb 等の追加依存なしにテストする。
  *
  * getDb / saveDataset / loadDataset / listDatasets / deleteDataset /
- * getLabel / setLabel / getAllLabels / getSetting / setSetting / clearAll /
- * estimateUsage は IndexedDB (openDB) と navigator.storage に依存するため、
- * Node 環境では未テスト。ブラウザ環境（例: vitest browser mode や e2e）が
- * 用意されたらそちらでカバーする。
+ * getSetting / setSetting / clearAll / estimateUsage は IndexedDB (openDB) と
+ * navigator.storage に依存するため、Node 環境では未テスト。ブラウザ環境
+ * （例: vitest browser mode や e2e）が用意されたらそちらでカバーする。
+ *
+ * ラベル（getLabel / setLabel / deleteLabel / getAllLabels）と、それを使う
+ * store/labels.ts だけは、idb の openDB を Map で置き換えた最小の偽物で確かめる
+ * （依存は増やさない）。確かめているのは「どのストアに何を書き、何を消すか」という
+ * db.ts 側の約束までで、IndexedDB 自体の挙動ではない。
  */
-import { describe, expect, it } from 'vitest'
-import { fileFingerprint } from '../src/store/db'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { deleteLabel, fileFingerprint, getAllLabels, getLabel, setLabel } from '../src/store/db'
+import { useLabels } from '../src/store/labels'
+
+/** 偽物への指示。書き込みを失敗させて、ラベルの楽観的更新の巻き戻しを確かめる */
+const fakeIdb = vi.hoisted(() => ({ failWrites: false }))
+
+vi.mock('idb', () => {
+  // db.ts が使う idb の API のうち、ラベルの読み書きで通る部分だけを真似る
+  class FakeDb {
+    private stores = new Map<string, { keyPath?: string; rows: Map<string, unknown> }>()
+
+    createObjectStore(name: string, opts?: { keyPath?: string }) {
+      this.stores.set(name, { keyPath: opts?.keyPath, rows: new Map() })
+      return { createIndex: () => undefined }
+    }
+
+    private store(name: string) {
+      const s = this.stores.get(name)
+      if (!s) throw new Error(`object store が無い: ${name}`)
+      return s
+    }
+
+    async get(name: string, key: string) {
+      return structuredClone(this.store(name).rows.get(key))
+    }
+
+    async getAll(name: string) {
+      return [...this.store(name).rows.values()].map((v) => structuredClone(v))
+    }
+
+    async put(name: string, value: Record<string, unknown>, key?: string) {
+      if (fakeIdb.failWrites) throw new Error('書き込みに失敗（テスト用）')
+      const s = this.store(name)
+      const k = s.keyPath ? String(value[s.keyPath]) : key!
+      s.rows.set(k, structuredClone(value))
+      return k
+    }
+
+    async delete(name: string, key: string) {
+      if (fakeIdb.failWrites) throw new Error('書き込みに失敗（テスト用）')
+      this.store(name).rows.delete(key)
+    }
+  }
+
+  return {
+    openDB: async (_name: string, _version: number, opts?: { upgrade?: (db: FakeDb) => void }) => {
+      const db = new FakeDb()
+      opts?.upgrade?.(db)
+      return db
+    },
+  }
+})
 
 function makeFile(content: string, name = 'test.json', lastModified = 1700000000000): File {
   return new File([content], name, { type: 'application/json', lastModified })
@@ -112,5 +167,75 @@ describe('fileFingerprint', () => {
     expect(fileOne.size).toBe(fileTwo.size)
     const [hashOne, hashTwo] = await Promise.all([fileFingerprint(fileOne), fileFingerprint(fileTwo)])
     expect(hashOne).not.toBe(hashTwo)
+  })
+})
+
+describe('deleteLabel', () => {
+  beforeEach(() => {
+    fakeIdb.failWrites = false
+  })
+
+  it('消したラベルは getLabel / getAllLabels から消え、ほかのラベルは残る', async () => {
+    await setLabel('fake-del-a', '図書館')
+    await setLabel('fake-del-b', '公園')
+    await deleteLabel('fake-del-a')
+    expect(await getLabel('fake-del-a')).toBeUndefined()
+    const all = await getAllLabels()
+    expect(all).not.toHaveProperty('fake-del-a')
+    expect(all['fake-del-b']).toBe('公園')
+  })
+
+  it('無いキーを消してもエラーにならない', async () => {
+    await expect(deleteLabel('fake-never-saved')).resolves.toBeUndefined()
+  })
+
+  it('格子キー（grid:...）もそのままキーとして扱う', async () => {
+    await setLabel('grid:111:222', '駅前')
+    expect(await getLabel('grid:111:222')).toBe('駅前')
+    await deleteLabel('grid:111:222')
+    expect(await getLabel('grid:111:222')).toBeUndefined()
+  })
+})
+
+describe('useLabels（store/labels.ts）', () => {
+  beforeEach(() => {
+    fakeIdb.failWrites = false
+  })
+
+  it('load() で保存済みのラベルを読み込む（何度呼んでも 1 回）', async () => {
+    await setLabel('fake-store-home', '実家')
+    const first = useLabels.getState().load()
+    expect(useLabels.getState().load()).toBe(first)
+    await first
+    expect(useLabels.getState().loaded).toBe(true)
+    expect(useLabels.getState().labels['fake-store-home']).toBe('実家')
+  })
+
+  it('setLabel は前後の空白を落とし、保存を待たずに画面の状態へ反映する', async () => {
+    const pending = useLabels.getState().setLabel('grid:1:2', '  図書館 ')
+    expect(useLabels.getState().labels['grid:1:2']).toBe('図書館')
+    await pending
+    expect(await getLabel('grid:1:2')).toBe('図書館')
+  })
+
+  it('空白だけのラベルは削除として扱う（自動ラベルの表示に戻す）', async () => {
+    await useLabels.getState().setLabel('grid:3:4', '駐車場')
+    await useLabels.getState().setLabel('grid:3:4', '   ')
+    expect(useLabels.getState().labels).not.toHaveProperty('grid:3:4')
+    expect(await getLabel('grid:3:4')).toBeUndefined()
+    expect(await getAllLabels()).not.toHaveProperty('grid:3:4')
+  })
+
+  it('保存に失敗したら画面の状態を元に戻し、理由を残す', async () => {
+    await useLabels.getState().setLabel('fake-fail', '元の名前')
+    fakeIdb.failWrites = true
+    await useLabels.getState().setLabel('fake-fail', '新しい名前')
+    expect(useLabels.getState().labels['fake-fail']).toBe('元の名前')
+    expect(useLabels.getState().error).toMatch(/失敗/)
+    // 消すのに失敗した場合も戻る
+    await useLabels.getState().setLabel('fake-fail', '')
+    expect(useLabels.getState().labels['fake-fail']).toBe('元の名前')
+    fakeIdb.failWrites = false
+    expect(await getLabel('fake-fail')).toBe('元の名前')
   })
 })
