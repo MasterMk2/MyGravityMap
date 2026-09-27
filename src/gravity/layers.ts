@@ -28,6 +28,21 @@ export const DEFAULT_GRAVITY: GravitySettings = {
   opacity: 0.85,
 }
 
+/** 保存しておいた設定が今の形に合っているか。古い版の値は捨てて既定に戻す */
+export function isGravitySettings(v: unknown): v is GravitySettings {
+  if (!v || typeof v !== 'object') return false
+  const g = v as Record<string, unknown>
+  const num = (x: unknown) => typeof x === 'number' && Number.isFinite(x)
+  return (
+    ['off', 'heat', 'hex', 'both'].includes(g.mode as string) &&
+    ['days', 'track', 'visit'].includes(g.source as string) &&
+    num(g.radiusMeters) &&
+    num(g.intensity) &&
+    num(g.contrast) &&
+    num(g.opacity)
+  )
+}
+
 export interface GravityLayerInput {
   mode: GravityMode
   points: WeightedPoints

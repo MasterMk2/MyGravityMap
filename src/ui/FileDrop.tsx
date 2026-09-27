@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import { HowToExport, LicenseLinks, LicenseText, PrivacyNote } from './About'
+import { DataManager } from './DataManager'
 
 export function FileDrop() {
   const { status, phase, progress, error, loadFile, loadDemo, reset } = useAppStore()
@@ -79,6 +80,12 @@ export function FileDrop() {
 
         <PrivacyNote />
         <HowToExport />
+        <details className="howto">
+          <summary>この端末に保存したデータ</summary>
+          <div className="howto__body">
+            <DataManager />
+          </div>
+        </details>
         <LicenseText />
         <LicenseLinks />
       </div>

@@ -10,6 +10,9 @@
   inset: 0;
   display: grid;
   place-items: center;
+  /* 説明を開くと画面より縦に長くなるので、カードごとスクロールさせる */
+  overflow-y: auto;
+  padding: 16px 0;
   background: rgba(6, 8, 12, 0.72);
   backdrop-filter: blur(3px);
 }
@@ -118,19 +121,23 @@ code {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  /* スライダーのつまみなどが 1〜2px はみ出して横スクロールバーが出るのを防ぐ */
+  overflow-x: hidden;
   overscroll-behavior: contain;
 }
 
+/* タブが 7 つあるので 4 列 × 2 段の格子にする（成り行きで折り返すと 6 + 1 の不揃いになる） */
 .panel__tabs {
-  display: flex;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
   margin-bottom: 10px;
 }
 
 .panel__tabs button {
-  flex: 1;
-  padding: 4px 6px;
-  font-size: 13px;
+  padding: 3px 2px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .panel__tabs .is-active {
@@ -141,11 +148,86 @@ code {
 .panel__foot {
   display: grid;
   gap: 8px;
-  margin-top: 10px;
-  padding-top: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
   border-top: 1px solid var(--border);
   font-size: 13px;
   color: var(--muted);
+}
+
+.panel__section {
+  display: grid;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.panel__h {
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.panel__note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+/* 見出しのファイル名の前に付ける小さな札（デモデータなど） */
+.badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  vertical-align: 1px;
+  color: #0b0d12;
+  background: var(--warn);
+}
+
+/* --- 書き出し --- */
+.exports {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.exports__label {
+  width: 100%;
+  font-size: 12px;
+}
+
+.exports button {
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+
+/* --- 保存データの管理 --- */
+.datamgr {
+  display: grid;
+  gap: 6px;
+}
+
+.datamgr__line {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.datamgr__clear {
+  justify-self: start;
+  padding: 4px 10px;
+  font-size: 12.5px;
+  color: #fca5a5;
+  border-color: rgba(252, 165, 165, 0.4);
 }
 
 /* --- 重力マップの操作 --- */
@@ -511,4 +593,14 @@ code {
 
 .howto__body a {
   color: var(--accent);
+}
+
+/* 電話の幅: パネルは画面の幅いっぱいに広げ（右上のズームボタンの分は空ける）、
+   高さは地図が見える程度に抑える */
+@media (max-width: 640px) {
+  .panel {
+    right: 56px;
+    width: auto;
+    max-height: min(55%, calc(100% - 36px - var(--dock-h, 0px)));
+  }
 }

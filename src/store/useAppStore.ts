@@ -3,7 +3,7 @@ import type { Dataset, ParseMessage } from '../core/types'
 import { PIPELINE_VERSION } from '../core/types'
 import type { ParseSource } from '../workers/parse.worker'
 import { DEMO_SEED, DEMO_VERSION } from '../demo/generate'
-import { fileFingerprint, loadDataset, saveDataset } from './db'
+import { fileFingerprint, loadDataset, pruneStaleDatasets, saveDataset } from './db'
 
 const DEMO_HASH_PREFIX = 'demo:'
 
@@ -112,6 +112,8 @@ async function run(source: ParseSource, fileHash: string, set: Setter) {
     })
 
     await saveDataset(dataset)
+    // 版が上がる前の解析結果は二度と読まれないので、ついでに片付ける（失敗しても表示には関係ない）
+    void pruneStaleDatasets(`:p${PIPELINE_VERSION}`).catch(() => undefined)
     set({ status: 'ready', dataset, progress: 1, phase: '' })
   } finally {
     worker.terminate()

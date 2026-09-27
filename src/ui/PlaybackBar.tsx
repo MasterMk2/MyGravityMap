@@ -19,6 +19,10 @@ export interface PlaybackBarProps {
   onScrub: (fraction: number) => void
   /** コマ送り。実時刻で days 日ぶん進める（負なら戻す） */
   onStepDays: (days: number) => void
+  /** 録画中か。録画は「再生している間」を録り、止めると保存する */
+  recording: boolean
+  /** 録画できない環境（MediaRecorder が無い等）では undefined にしてボタンを出さない */
+  onRecordToggle?: (() => void) | undefined
   /** 再生位置の 0..1 の割合(圧縮時間軸上の位置。currentTime から計算してはいけない) */
   progress: number
 
@@ -121,6 +125,7 @@ const CAMERA_OPTIONS: Array<{
 }> = [
   { value: 'fixed', label: '固定', hint: '地図を動かさない' },
   { value: 'follow', label: '追従', hint: '現在地を画面の中央に捉え続ける（地図を動かすと解除）' },
+  { value: 'fitDay', label: '日ごと', hint: '日が変わるたびに、その日の移動がちょうど収まるように合わせる（地図を動かすと解除）' },
 ]
 
 const COLOR_BY_OPTIONS: Array<{ value: PlaybackSettings['colorBy']; label: string }> = [
@@ -141,6 +146,11 @@ const PRESETS: Array<{ kind: PresetKind; label: string }> = [
   { kind: 'all', label: '全期間' },
 ]
 
+/** 電話くらいの幅か。パネルや設定を最初から開くかどうかの判断に使う */
+export function isNarrowScreen(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia?.('(max-width: 640px)').matches === true
+}
+
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }
@@ -151,7 +161,7 @@ function toLocalDate(t: Seconds, tzOffsetMin: number): Date {
   return new Date((t + tzOffsetMin * 60) * 1000)
 }
 
-function formatClock(t: Seconds, tzOffsetMin: number): string {
+export function formatClock(t: Seconds, tzOffsetMin: number): string {
   const d = toLocalDate(t, tzOffsetMin)
   const y = d.getUTCFullYear()
   const mo = pad2(d.getUTCMonth() + 1)
@@ -195,6 +205,8 @@ export function PlaybackBar(props: PlaybackBarProps): JSX.Element {
     currentTime,
     onScrub,
     onStepDays,
+    recording,
+    onRecordToggle,
     progress,
     settings,
     onSettingsChange,
@@ -205,6 +217,9 @@ export function PlaybackBar(props: PlaybackBarProps): JSX.Element {
 
   // 期間スライダーの二つのつまみが重なったときにドラッグ対象を手前に出す
   const [frontThumb, setFrontThumb] = useState<'start' | 'end'>('end')
+  // 表示の設定（移動痕・尾の長さ・カメラ・色分け）は、狭い画面では最初は畳んでおく。
+  // 開いたままだと再生バーだけで電話の画面が埋まり、地図が見えない。
+  const [showSettings, setShowSettings] = useState(() => !isNarrowScreen())
 
   const span = Math.max(1, bounds.end - bounds.start)
   // 年単位の範囲を秒刻みで操作すると矢印キーが実質効かないため、範囲に応じた粗さにする
@@ -307,6 +322,22 @@ export function PlaybackBar(props: PlaybackBarProps): JSX.Element {
           >
             ⟲
           </button>
+          {onRecordToggle && (
+            <button
+              type="button"
+              className={`playbackbar__iconBtn playbackbar__rec${recording ? ' is-active' : ''}`}
+              aria-pressed={recording}
+              aria-label={recording ? '録画を止めて保存' : '録画しながら再生'}
+              title={
+                recording
+                  ? '録画を止めて動画を保存（再生を止めても保存されます）'
+                  : '録画しながら再生。止めると動画ファイルを保存します（この端末にだけ保存）'
+              }
+              onClick={onRecordToggle}
+            >
+              {recording ? '■' : '●'}
+            </button>
+          )}
         </div>
 
         <div className="playbackbar__scrub">
@@ -373,6 +404,16 @@ export function PlaybackBar(props: PlaybackBarProps): JSX.Element {
         </div>
       </div>
 
+      <button
+        type="button"
+        className="playbackbar__settingsToggle"
+        aria-expanded={showSettings}
+        onClick={() => setShowSettings((v) => !v)}
+      >
+        {showSettings ? '表示の設定を閉じる ▴' : '表示の設定（移動痕・尾の長さ・カメラ・色分け） ▾'}
+      </button>
+
+      {showSettings && (
       <div className="playbackbar__row playbackbar__row--settings">
         <div className="playbackbar__group">
           <span className="playbackbar__label">移動痕</span>
@@ -459,6 +500,7 @@ export function PlaybackBar(props: PlaybackBarProps): JSX.Element {
           </div>
         )}
       </div>
+      )}
 
       <div className="playbackbar__row playbackbar__row--period">
         <div className="playbackbar__period">

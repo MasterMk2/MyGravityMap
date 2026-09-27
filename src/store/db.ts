@@ -95,6 +95,19 @@ export async function listDatasets(): Promise<
   return out
 }
 
+/**
+ * 取り込みの版（キーの末尾の `:p<版>`）が今と違う解析結果を消す。
+ * PIPELINE_VERSION を上げると古い版はもう読まれないのに、消さないと端末に残り続ける
+ * （74MB 級のファイルなら 1 件で数十 MB）。消した件数を返す。
+ */
+export async function pruneStaleDatasets(currentVersionSuffix: string): Promise<number> {
+  const db = await getDb()
+  const keys = await db.getAllKeys('datasets')
+  const stale = keys.filter((k) => !String(k).endsWith(currentVersionSuffix))
+  await Promise.all(stale.map((k) => db.delete('datasets', k)))
+  return stale.length
+}
+
 export async function deleteDataset(fileHash: string): Promise<void> {
   const db = await getDb()
   await db.delete('datasets', fileHash)

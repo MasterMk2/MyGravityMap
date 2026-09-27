@@ -15,7 +15,17 @@
  * db.ts 側の約束までで、IndexedDB 自体の挙動ではない。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { deleteLabel, fileFingerprint, getAllLabels, getLabel, setLabel } from '../src/store/db'
+import {
+  deleteLabel,
+  fileFingerprint,
+  getAllLabels,
+  getLabel,
+  loadDataset,
+  pruneStaleDatasets,
+  saveDataset,
+  setLabel,
+} from '../src/store/db'
+import type { Dataset } from '../src/core/types'
 import { useLabels } from '../src/store/labels'
 
 /** 偽物への指示。書き込みを失敗させて、ラベルの楽観的更新の巻き戻しを確かめる */
@@ -43,6 +53,10 @@ vi.mock('idb', () => {
 
     async getAll(name: string) {
       return [...this.store(name).rows.values()].map((v) => structuredClone(v))
+    }
+
+    async getAllKeys(name: string) {
+      return [...this.store(name).rows.keys()]
     }
 
     async put(name: string, value: Record<string, unknown>, key?: string) {
@@ -237,5 +251,20 @@ describe('useLabels（store/labels.ts）', () => {
     expect(useLabels.getState().labels['fake-fail']).toBe('元の名前')
     fakeIdb.failWrites = false
     expect(await getLabel('fake-fail')).toBe('元の名前')
+  })
+})
+
+describe('pruneStaleDatasets', () => {
+  it('取り込みの版が今と違う解析結果だけを消す', async () => {
+    const d = (fileHash: string) => ({ fileHash, parsedAt: 0 }) as unknown as Dataset
+    await saveDataset(d('aaa:p2'))
+    await saveDataset(d('bbb:p3'))
+    await saveDataset(d('demo:1:v1:p2'))
+    await saveDataset(d('demo:1:v1:p3'))
+    expect(await pruneStaleDatasets(':p3')).toBe(2)
+    expect(await loadDataset('aaa:p2')).toBeUndefined()
+    expect(await loadDataset('demo:1:v1:p2')).toBeUndefined()
+    expect((await loadDataset('bbb:p3'))?.fileHash).toBe('bbb:p3')
+    expect((await loadDataset('demo:1:v1:p3'))?.fileHash).toBe('demo:1:v1:p3')
   })
 })

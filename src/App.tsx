@@ -1,24 +1,64 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Layer } from '@deck.gl/core'
 import { MapCanvas, type MapCanvasHandle } from './map/MapCanvas'
-import type { BasemapId } from './map/basemaps'
+import { BASEMAPS, type BasemapId } from './map/basemaps'
 import { useAppStore } from './store/useAppStore'
 import { usePlayback } from './playback/usePlayback'
 import { buildPlaybackLayers } from './playback/layers'
-import { buildGravityLayers, DEFAULT_GRAVITY, type GravitySettings } from './gravity/layers'
+import {
+  buildGravityLayers,
+  DEFAULT_GRAVITY,
+  isGravitySettings,
+  type GravitySettings,
+} from './gravity/layers'
 import { buildWeightedPoints, hasVisitWeights } from './gravity/weights'
 import { FileDrop } from './ui/FileDrop'
 import { StatsPanel } from './ui/StatsPanel'
-import { PlaybackBar } from './ui/PlaybackBar'
+import { formatClock, isNarrowScreen, PlaybackBar } from './ui/PlaybackBar'
+import { canRecord, type Recording } from './map/recorder'
+import { usePersistentState } from './store/usePersistentState'
+import type { Trip } from './core/types'
+import { localDayKey } from './core/geo'
+import { localDayRange } from './core/timezone'
+import { yearlyBarycenters, type YearBarycenter } from './core/barycenter'
+import { buildBarycenterLayers, coverageYearRange } from './views/barycenterLayers'
+import { downloadBlob } from './ui/download'
 import './App.css'
+
+const isBasemap = (v: unknown): v is BasemapId => typeof v === 'string' && v in BASEMAPS
+const isDim = (v: unknown): v is number => typeof v === 'number' && v >= 0 && v <= 0.85
+
+/** [start, end) に記録された軌跡の点の範囲 [west, south, east, north]。点が無ければ null */
+function boundsOfDay(trips: Trip[], start: number, end: number): [number, number, number, number] | null {
+  let w = Infinity
+  let s = Infinity
+  let e = -Infinity
+  let n = -Infinity
+  for (const t of trips) {
+    if (t.tEnd < start || t.tStart >= end) continue
+    for (let i = 0; i < t.times.length; i++) {
+      const time = t.times[i]!
+      if (time < start || time >= end) continue
+      const lon = t.coords[i * 2]!
+      const lat = t.coords[i * 2 + 1]!
+      if (lon < w) w = lon
+      if (lon > e) e = lon
+      if (lat < s) s = lat
+      if (lat > n) n = lat
+    }
+  }
+  return Number.isFinite(w) ? [w, s, e, n] : null
+}
 
 export function App() {
   const { status, dataset } = useAppStore()
-  const [basemap, setBasemap] = useState<BasemapId>('dark')
+  // 見た目の設定は端末に保存して、次に開いたときも同じにする
+  const [basemap, setBasemap] = usePersistentState<BasemapId>('basemap', 'dark', isBasemap)
   /** 地図を沈める量。軌跡を浮かせるための既定値 */
-  const [dim, setDim] = useState(0.35)
+  const [dim, setDim] = usePersistentState('dim', 0.35, isDim)
   // UI の格納。地図だけを大きく見たいときのため。h キーで両方まとめて切り替える。
-  const [showPanel, setShowPanel] = useState(true)
+  // 電話の幅ではパネルを畳んだ状態から始める（開いていると地図がほとんど見えない）
+  const [showPanel, setShowPanel] = useState(() => !isNarrowScreen())
   const [showBar, setShowBar] = useState(true)
   const mapRef = useRef<MapCanvasHandle>(null)
 
@@ -47,13 +87,22 @@ export function App() {
   const mapFilter =
     dim > 0 ? `brightness(${(1 - dim * 0.75).toFixed(2)}) saturate(${(1 - dim * 0.6).toFixed(2)})` : ''
 
-  // 開発時だけ: ?dev=/Sampledata/location-history.json でファイル選択を省略できる。
-  // dev サーバはリポジトリ内のファイルを配信するので、手作業なしに実データで確認できる。
-  // 本番ビルドでは import.meta.env.DEV が false なので到達しない。
+  // URL で読み込むものを指定できる。
+  // - ?demo: デモデータ（本番でも有効）
+  // - ?dev=/Sampledata/location-history.json: 開発時だけ。dev サーバはリポジトリ内のファイルを
+  //   配信するので、手作業なしに実データで確認できる。本番ビルドでは import.meta.env.DEV が false。
   const devUrlLoaded = useRef(false)
   useEffect(() => {
-    if (!import.meta.env.DEV || devUrlLoaded.current) return
-    const dev = new URLSearchParams(window.location.search).get('dev')
+    if (devUrlLoaded.current) return
+    const params = new URLSearchParams(window.location.search)
+    // ?demo はデモデータを直接開く。公開版でもそのまま試せるリンクとして配れるように本番でも有効
+    if (params.has('demo')) {
+      devUrlLoaded.current = true
+      void useAppStore.getState().loadDemo()
+      return
+    }
+    if (!import.meta.env.DEV) return
+    const dev = params.get('dev')
     if (!dev) return
     devUrlLoaded.current = true
     void useAppStore.getState().loadDevUrl(dev)
@@ -95,7 +144,11 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [showPanel, showBar, playing, setPlaying, stepDays])
 
-  const [gravity, setGravity] = useState<GravitySettings>(DEFAULT_GRAVITY)
+  const [gravity, setGravity] = usePersistentState<GravitySettings>(
+    'gravity',
+    DEFAULT_GRAVITY,
+    isGravitySettings,
+  )
 
   /*
    * ヒートマップの格子はズームに追随させる（引きで明るくなりすぎないように）。
@@ -145,6 +198,37 @@ export function App() {
     mapRef.current?.setCenter(cursorLon, cursorLat)
   }, [follow, cursorLon, cursorLat])
 
+  /**
+   * 地図を範囲に合わせるときの余白。左のパネルと下の再生バーに隠れる分だけ広げる
+   * （四辺同じ余白だと、合わせた範囲の半分がパネルの下に入ってしまう）。
+   */
+  const fitPadding = useCallback(() => {
+    const panel = document.querySelector('.panel')?.getBoundingClientRect()
+    // 狭い画面では余白が地図より大きくなり、MapLibre が合わせるのを諦めてしまうので頭打ちにする
+    return {
+      top: 40,
+      right: 60,
+      left: Math.min((panel ? panel.right : 0) + 30, window.innerWidth * 0.5),
+      bottom: Math.min(dockHeight + 40, window.innerHeight * 0.5),
+    }
+  }, [dockHeight])
+
+  /*
+   * 日ごとモード: 記録側の暦日が変わったら、その日の軌跡がちょうど収まるように合わせる。
+   * 毎フレームではなく日が変わったときだけ動かす（fitBounds はアニメーションするので、
+   * 連打すると画面が落ち着かない）。
+   */
+  const fitDay = pb.settings.camera === 'fitDay'
+  const dayKey = dataset ? localDayKey(pb.currentTime, pb.tzOffsetMin) : ''
+  const dayTrips = pb.trips
+  const dayTz = pb.tzOffsetMin
+  useEffect(() => {
+    if (!fitDay || !dayKey) return
+    const [start, end] = localDayRange(dayKey, dayTz)
+    const bbox = boundsOfDay(dayTrips, start, end)
+    if (bbox) mapRef.current?.fitBounds(bbox, fitPadding(), 14)
+  }, [fitDay, dayKey, dayTrips, dayTz, fitPadding])
+
   // 重力マップは再生位置に依存しない。再生中は currentRel が毎フレーム変わるので、
   // 一緒の useMemo に入れると集計レイヤーを毎フレーム作り直すことになり、
   // 集計が終わる前に作り直されて柱が出たり出なかったりする。
@@ -181,11 +265,68 @@ export function App() {
     [dataset, pb.trips, pb.rel, pb.currentRel, pb.settings, pb.colors, pb.activeVisit, pb.cursor],
   )
 
-  // 重力マップを先に積む＝軌跡がその上に描かれる
-  const layers = useMemo<Layer[]>(
-    () => [...gravityLayers, ...playbackLayers],
-    [gravityLayers, playbackLayers],
+  // 年ごとの重心。地図に出すときだけ数える（全軌跡を 1 周するので、見ないなら払わない）。
+  // 表（重心タブ）と地図が同じ計算結果を見るよう、数えたものはパネルにも渡す。
+  const [showBarycenter, setShowBarycenter] = useState(false)
+  const [barycenterYear, setBarycenterYear] = useState<number | null>(null)
+  const barycenters = useMemo<YearBarycenter[] | undefined>(
+    () => (dataset && showBarycenter ? yearlyBarycenters(dataset) : undefined),
+    [dataset, showBarycenter],
   )
+  const barycenterLayers = useMemo<Layer[]>(() => {
+    if (!dataset || !barycenters) return []
+    return buildBarycenterLayers(barycenters, {
+      ...coverageYearRange(dataset),
+      selectedYear: barycenterYear,
+    })
+  }, [dataset, barycenters, barycenterYear])
+
+  // 重力マップ → 重心 → 軌跡の順に積む（後ろほど上に描かれる）
+  const layers = useMemo<Layer[]>(
+    () => [...gravityLayers, ...barycenterLayers, ...playbackLayers],
+    [gravityLayers, barycenterLayers, playbackLayers],
+  )
+
+  /*
+   * 録画。「録画しながら再生」を押すと再生を始め、再生が止まったら（一時停止・末尾・■）保存する。
+   * 何を録ったかの区切りが「1 回の再生」と一致するので分かりやすい。
+   */
+  const recordingRef = useRef<Recording | null>(null)
+  const [recording, setRecording] = useState(false)
+  const clockRef = useRef('')
+  clockRef.current = formatClock(pb.currentTime, pb.tzOffsetMin)
+  const stopRecording = useCallback(async () => {
+    const rec = recordingRef.current
+    if (!rec) return
+    recordingRef.current = null
+    setRecording(false)
+    const blob = await rec.stop()
+    if (blob) downloadBlob(`mygravitymap-${Date.now().toString(36)}.${rec.extension}`, blob)
+  }, [])
+  const toggleRecording = useCallback(() => {
+    if (recordingRef.current) {
+      setPlaying(false)
+      void stopRecording()
+      return
+    }
+    const rec = mapRef.current?.startRecording(() => clockRef.current)
+    if (!rec) return
+    recordingRef.current = rec
+    setRecording(true)
+    setPlaying(true)
+  }, [setPlaying, stopRecording])
+  useEffect(() => {
+    if (recording && !playing) void stopRecording()
+  }, [recording, playing, stopRecording])
+  const recordSupported = useMemo(() => canRecord(), [])
+
+  const exportPng = useCallback(async () => {
+    const blob = await mapRef.current?.exportPng()
+    if (!blob) return
+    const d = new Date()
+    const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+    downloadBlob(`mygravitymap-${stamp}.png`, blob)
+  }, [])
 
   return (
     <div className="app" style={{ ['--dock-h' as string]: `${dockHeight}px` } as React.CSSProperties}>
@@ -197,7 +338,7 @@ export function App() {
         onViewStateChange={onViewStateChange}
         // 自分で地図を動かしたら追従を解除する（引っ張り合いにならないように）
         onUserPan={() => {
-          if (pb.settings.camera === 'follow') pb.changeSettings({ camera: 'fixed' })
+          if (pb.settings.camera !== 'fixed') pb.changeSettings({ camera: 'fixed' })
         }}
       >
         {status !== 'ready' && <FileDrop />}
@@ -214,15 +355,26 @@ export function App() {
           <StatsPanel
             onCollapse={() => setShowPanel(false)}
             dataset={dataset}
+            selection={pb.selection}
+            onSelectWindow={pb.changeWindow}
             basemap={basemap}
             onBasemapChange={setBasemap}
             dim={dim}
             onDimChange={setDim}
-            onFocus={(lon, lat) => mapRef.current?.flyTo({ longitude: lon, latitude: lat, zoom: 12 })}
+            onFocus={(lon, lat, zoom) =>
+              mapRef.current?.flyTo({ longitude: lon, latitude: lat, zoom: zoom ?? 12 })
+            }
+            onFitBounds={(bbox) => mapRef.current?.fitBounds(bbox, fitPadding())}
             gravity={gravity}
             onGravityChange={changeGravity}
             gravityPoints={gravityPoints}
             visitAvailable={visitAvailable}
+            showBarycenter={showBarycenter}
+            onShowBarycenterChange={setShowBarycenter}
+            barycenters={barycenters}
+            barycenterYear={barycenterYear}
+            onBarycenterYearChange={setBarycenterYear}
+            onExportPng={exportPng}
           />
         )}
         {status === 'ready' && dataset && !showBar && (
@@ -253,6 +405,8 @@ export function App() {
               currentTime={pb.currentTime}
               onScrub={pb.scrub}
               onStepDays={pb.stepDays}
+              recording={recording}
+              onRecordToggle={recordSupported ? toggleRecording : undefined}
               progress={pb.progress}
               settings={pb.settings}
               onSettingsChange={pb.changeSettings}

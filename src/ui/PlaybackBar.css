@@ -58,6 +58,22 @@
   border-color: rgba(94, 234, 212, 0.5);
 }
 
+.playbackbar__rec {
+  color: #f87171;
+}
+
+/* 録画中は点滅させて、録っていることを見落とさないようにする */
+.playbackbar__rec.is-active {
+  border-color: rgba(248, 113, 113, 0.6);
+  animation: playbackbar-rec 1.2s ease-in-out infinite;
+}
+
+@keyframes playbackbar-rec {
+  50% {
+    background: rgba(248, 113, 113, 0.18);
+  }
+}
+
 .playbackbar__scrub {
   flex: 1 1 160px;
   min-width: 140px;
@@ -270,6 +286,16 @@
   outline-offset: 1px;
 }
 
+/* 表示の設定の開け閉め。広い画面では開いた状態から始まり、狭い画面では畳んだ状態から始まる */
+.playbackbar__settingsToggle {
+  align-self: flex-start;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--muted);
+  background: none;
+  border-color: transparent;
+}
+
 @media (max-width: 720px) {
   .playbackbar__row {
     gap: 10px;
@@ -277,5 +303,16 @@
 
   .playbackbar__presets {
     padding-top: 8px;
+  }
+}
+
+/* 電話の幅: ボタンの並びは折り返す（尾の長さの 10 段などが横にはみ出して切れるため） */
+@media (max-width: 640px) {
+  .playbackbar .segmented {
+    flex-wrap: wrap;
+  }
+
+  .playbackbar__group {
+    flex-wrap: wrap;
   }
 }
