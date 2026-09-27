@@ -14,11 +14,12 @@ import {
 } from 'maplibre-gl'
 import type { FitBoundsOptions, FlyToOptions, MapOptions } from 'maplibre-gl'
 import { MapboxOverlay } from '@deck.gl/mapbox'
-import type { Layer } from '@deck.gl/core'
+import type { Deck, Layer } from '@deck.gl/core'
 import { BASEMAPS, attributionOf } from './basemaps'
 import type { BasemapId } from './basemaps'
 import { buildBuildingsLayer } from './buildings'
 import { ensureMaplibreWorker } from './maplibreWorker'
+import { startRecording, type Recording } from './recorder'
 import './MapCanvas.css'
 
 // 地図を作る前に Worker の場所を教えておく（詳細は maplibreWorker.ts）
@@ -68,8 +69,15 @@ export interface MapCanvasHandle {
     zoom?: number
     durationMs?: number
   }): void
-  /** bounds: [west, south, east, north] */
-  fitBounds(bounds: [number, number, number, number], padPx?: number): void
+  /**
+   * bounds: [west, south, east, north]。maxZoom を渡すと、狭い範囲に寄りすぎないように止める。
+   * padding は数値（四辺同じ）か、パネルや再生バーに隠れる辺だけ広げる四辺指定。
+   */
+  fitBounds(
+    bounds: [number, number, number, number],
+    padding?: number | { top: number; bottom: number; left: number; right: number },
+    maxZoom?: number,
+  ): void
   /**
    * ズームや向きを変えずに中心だけ移す。追従モードで毎フレーム呼ぶため、
    * アニメーションを挟まない（flyTo だと呼ぶたびに新しい動きが始まって震える）。
@@ -78,6 +86,13 @@ export interface MapCanvasHandle {
   /** 地図の傾き（度）。3D の柱は真上から見ると高さが分からないため使う */
   setPitch(degrees: number, durationMs?: number): void
   getPitch(): number
+  /**
+   * いま見えている地図と軌跡を 1 枚の PNG にする。地図の帰属表示も焼き込む
+   * （画像だけが共有されても ODbL / タイル配信元の表示が残るように）。
+   */
+  exportPng(): Promise<Blob | null>
+  /** 録画を始める。label は動画の左上に焼き込む時刻の文字列を返す関数。録れない環境では null */
+  startRecording(label: () => string): Recording | null
 }
 
 const DEFAULT_VIEW: Required<Pick<MapCanvasInitialViewState, 'longitude' | 'latitude' | 'zoom'>> = {
@@ -124,6 +139,59 @@ function add3dBuildings(map: MapLibreMap): void {
   map.addLayer(layer, labelLayerId)
 }
 
+/**
+ * 地図と deck.gl の 2 枚のキャンバスを合成して PNG にする。
+ *
+ * どちらも WebGL で preserveDrawingBuffer を切ってあるので、描画が終わって画面に
+ * 出た後のバッファは読めない（真っ黒・透明になる）。同じタスクの中で両方を
+ * 同期的に描き直し、その直後に drawImage すれば、合成前のバッファがまだ残っている。
+ * 常時 preserveDrawingBuffer を有効にするより、再生中の描画が軽く済む。
+ */
+function composePng(
+  map: MapLibreMap,
+  overlay: MapboxOverlay | null,
+  mapFilter: string | undefined,
+  basemap: BasemapId,
+): Promise<Blob | null> {
+  // MapboxOverlay は内部の Deck を公開していない。非公開フィールドなので、
+  // 取れなければ地図だけを書き出す（軌跡は欠けるが壊れはしない）。
+  const deck = (overlay as unknown as { _deck?: Deck } | null)?._deck
+
+  map.redraw()
+  deck?.redraw('export-png')
+
+  const mapCanvas = map.getCanvas()
+  const deckCanvas = deck?.getCanvas() ?? null
+  const out = document.createElement('canvas')
+  out.width = mapCanvas.width
+  out.height = mapCanvas.height
+  const ctx = out.getContext('2d')
+  if (!ctx) return Promise.resolve(null)
+
+  ctx.fillStyle = '#0b0d12'
+  ctx.fillRect(0, 0, out.width, out.height)
+  // 「地図を沈める」は CSS の filter で掛けているので、画像にも同じものを掛ける
+  if (mapFilter) ctx.filter = mapFilter
+  ctx.drawImage(mapCanvas, 0, 0)
+  ctx.filter = 'none'
+  if (deckCanvas) ctx.drawImage(deckCanvas, 0, 0, out.width, out.height)
+
+  const attribution = attributionOf(basemap)
+  const scale = out.width / Math.max(1, mapCanvas.clientWidth)
+  const text = attribution ? `${attribution} · MyGravityMap` : 'MyGravityMap'
+  ctx.font = `${Math.round(11 * scale)}px system-ui, sans-serif`
+  const pad = Math.round(6 * scale)
+  const w = ctx.measureText(text).width + pad * 2
+  const h = Math.round(18 * scale)
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)'
+  ctx.fillRect(out.width - w, out.height - h, w, h)
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(text, out.width - w + pad, out.height - h / 2)
+
+  return new Promise((resolve) => out.toBlob(resolve, 'image/png'))
+}
+
 export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
   function MapCanvas(props, ref) {
     const {
@@ -154,6 +222,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
     onViewStateChangeRef.current = onViewStateChange
     const onUserPanRef = useRef(onUserPan)
     onUserPanRef.current = onUserPan
+    const mapFilterRef = useRef(mapFilter)
+    mapFilterRef.current = mapFilter
 
     useImperativeHandle(
       ref,
@@ -170,11 +240,12 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
           if (durationMs !== undefined) opts.duration = durationMs
           map.flyTo(opts)
         },
-        fitBounds(bounds, padPx) {
+        fitBounds(bounds, padding, maxZoom) {
           const map = mapRef.current
           if (!map) return
           const opts: FitBoundsOptions = {}
-          if (padPx !== undefined) opts.padding = padPx
+          if (padding !== undefined) opts.padding = padding
+          if (maxZoom !== undefined) opts.maxZoom = maxZoom
           map.fitBounds(bounds, opts)
         },
         setCenter(longitude, latitude) {
@@ -187,6 +258,20 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
         },
         getPitch() {
           return mapRef.current?.getPitch() ?? 0
+        },
+        exportPng() {
+          const map = mapRef.current
+          if (!map) return Promise.resolve(null)
+          return composePng(map, overlayRef.current, mapFilterRef.current, basemapRef.current)
+        },
+        startRecording(label) {
+          const map = mapRef.current
+          if (!map) return null
+          return startRecording(map, overlayRef.current, {
+            mapFilter: mapFilterRef.current,
+            attribution: attributionOf(basemapRef.current),
+            label,
+          })
         },
       }),
       [],
