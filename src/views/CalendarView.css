@@ -1,0 +1,216 @@
+/* --- カレンダー（GitHub の草風） ---
+   色は 1 色相（青緑）の明度だけで量を表す。暗い面の上なので、少ない＝暗い・多い＝明るい。
+   4 段階は明度が単調に上がり、隣どうしの差と最も暗い段の面に対するコントラストを検証済み。
+   「記録なし」と「0」は段階とは別の無彩色にして、量の色と取り違えないようにする。 */
+.cal {
+  --cal-empty: rgba(255, 255, 255, 0.045);
+  --cal-l0: #3a4150;
+  --cal-l1: #1d6b60;
+  --cal-l2: #219482;
+  --cal-l3: #34c4ac;
+  --cal-l4: #7ff3de;
+  --cal-halo: rgba(232, 234, 240, 0.9);
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.cal__metric {
+  flex: none;
+}
+
+.cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cal-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cal-legend__ramp {
+  gap: 2px;
+}
+
+.cal-legend__ramp .cal-sw:first-of-type {
+  margin-left: 4px;
+}
+
+.cal-legend__ramp .cal-sw:last-of-type {
+  margin-right: 4px;
+}
+
+.cal-sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.cal-sw.is-empty {
+  background: var(--cal-empty);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.cal-sw.l0 {
+  background: var(--cal-l0);
+}
+
+.cal-sw.l1 {
+  background: var(--cal-l1);
+}
+
+.cal-sw.l2 {
+  background: var(--cal-l2);
+}
+
+.cal-sw.l3 {
+  background: var(--cal-l3);
+}
+
+.cal-sw.l4 {
+  background: var(--cal-l4);
+}
+
+/* 「全期間を選択中」と「選択中 + ボタン」で高さが変わると升目がずれて押し間違えるので、高さを揃える */
+.cal__sel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-height: 24px;
+  margin: 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cal__all {
+  padding: 1px 8px;
+  font-size: 11px;
+}
+
+.cal__years {
+  display: grid;
+  gap: 6px;
+}
+
+.cal-year__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 年の数字は押せる（1 年分を選ぶ）が、見た目は見出しとして控えめに */
+.cal-year__btn {
+  padding: 0 4px;
+  margin-left: -4px;
+  font-size: 12px;
+  font-weight: 600;
+  background: none;
+  border-color: transparent;
+  font-variant-numeric: tabular-nums;
+}
+
+.cal-year__sum {
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.cal-year__grid {
+  border-radius: 4px;
+  outline: none;
+}
+
+.cal-year__grid:focus-visible {
+  box-shadow: 0 0 0 1px rgba(94, 234, 212, 0.5);
+}
+
+.cal-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cal-month {
+  font-size: 7px;
+  fill: var(--muted);
+}
+
+.cal-cell {
+  fill: var(--cal-empty);
+}
+
+.cal-cell.l0 {
+  fill: var(--cal-l0);
+}
+
+.cal-cell.l1 {
+  fill: var(--cal-l1);
+}
+
+.cal-cell.l2 {
+  fill: var(--cal-l2);
+}
+
+.cal-cell.l3 {
+  fill: var(--cal-l3);
+}
+
+.cal-cell.l4 {
+  fill: var(--cal-l4);
+}
+
+.cal-cell:hover {
+  stroke: var(--text);
+  stroke-width: 0.7;
+}
+
+.cal-halo {
+  fill: var(--cal-halo);
+  pointer-events: none;
+}
+
+/* キーボードで動かしているときだけ見せるカーソル（マウス操作では選択の白枠で足りる） */
+.cal-cursor {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.cal-year__grid:focus-visible .cal-cursor {
+  opacity: 1;
+}
+
+.cal__readout {
+  min-height: 1.6em;
+  margin: 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cal__note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.cal__note b {
+  color: var(--text);
+  font-weight: 600;
+}
