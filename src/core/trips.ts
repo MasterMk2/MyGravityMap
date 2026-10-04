@@ -24,7 +24,7 @@ export interface BuildTripsOptions {
    * 「44 時間空いて 129km」のような“間に何をしたか分からない”対は除外される。
    */
   longJumpMinKm?: number
-  /** 飛行区間を橋渡しするとき、どのサブギャップもこの秒数を超えないように中間点を入れる（既定 600） */
+  /** 飛行補間の目安の刻み（既定600秒）。点数上限が優先され、分割閾値からは独立 */
   flightMaxSubGapSec?: number
 }
 
@@ -41,6 +41,10 @@ const DEFAULT_LONG_JUMP_MIN_KM = 200
 const DEFAULT_FLIGHT_MAX_SUB_GAP_SEC = 600
 /** 飛行区間と判定された対には、どんなに短くても最低これだけの中間点を入れる。 */
 const MIN_FLIGHT_INTERMEDIATE_POINTS = 8
+/** A long observation gap is only an inferred route, not evidence for denser sampling. */
+export const MAX_FLIGHT_POINTS_PER_PAIR = 512
+/** Bound synthetic allocation across the entire import, not just each pair. */
+export const MAX_FLIGHT_POINTS_TOTAL = 100_000
 
 /** t 昇順にソートし、完全一致の重複を除去する。同時刻で座標が違う点が複数あれば
  *  最後の 1 点だけを残し、捨てた点ごとに duplicateTimeFixed を数える
@@ -74,8 +78,9 @@ export function normalizeMonotonic(points: TrackPoint[]): {
 }
 
 /** 連続する点対の実効速度が flightMinKmh を超え、かつ距離が flightMinKm を超える場合、
- *  大圏コース上に中間点を線形補間の時刻付きで挿入し、どのサブギャップも
- *  flightMaxSubGapSec を超えないようにする（最低 8 点）。入力は既に単調増加であること。
+ *  大圏コース上に中間点を線形補間の時刻付きで挿入する（目安は flightMaxSubGapSec）。
+ *  1対512点・全体100,000点を上限とする。全体上限超過時は部分結果を返さず失敗する。
+ *  入力は既に単調増加であること。飛行例外の連続性は buildTrips が明示的に保つ。
  *  拡張後の点列・挿入点数・飛行区間のインデックス範囲（拡張後の配列上、両端を含む）を返す。 */
 export function bridgeFlights(
   points: TrackPoint[],
@@ -85,6 +90,10 @@ export function bridgeFlights(
   const flightMinKm = opts?.flightMinKm ?? DEFAULT_FLIGHT_MIN_KM
   const longJumpMinKm = opts?.longJumpMinKm ?? DEFAULT_LONG_JUMP_MIN_KM
   const flightMaxSubGapSec = opts?.flightMaxSubGapSec ?? DEFAULT_FLIGHT_MAX_SUB_GAP_SEC
+
+  if (!Number.isFinite(flightMaxSubGapSec) || flightMaxSubGapSec <= 0) {
+    throw new RangeError('飛行補間の刻みは正の有限数で指定してください')
+  }
 
   if (points.length === 0) return { points: [], inserted: 0, flightRanges: [] }
 
@@ -114,8 +123,14 @@ export function bridgeFlights(
       // Trip.times' strict-monotonic guarantee.
       const n = Math.min(
         Math.max(neededSegments - 1, MIN_FLIGHT_INTERMEDIATE_POINTS),
-        Math.max(0, dtSec - 1),
+        Math.max(0, Math.floor(dtSec) - 1),
+        MAX_FLIGHT_POINTS_PER_PAIR,
       )
+      // Check before creating any arrays for this pair. Never truncate observations or
+      // silently switch later flights to straight endpoint-only paths when the budget fills.
+      if (inserted + n > MAX_FLIGHT_POINTS_TOTAL) {
+        throw new RangeError('長距離移動の推定点が上限（100,000点）を超えます。期間を短くしたデータで読み込んでください。')
+      }
       const mids = greatCircleIntermediate(a.lat, a.lon, b.lat, b.lon, n)
 
       for (let k = 0; k < mids.length; k++) {
@@ -138,8 +153,7 @@ export function bridgeFlights(
 }
 
 /** フルパイプライン: normalizeMonotonic -> bridgeFlights -> gapSec 超で分割 -> Trip 構築。
- *  順序が重要: 橋渡しは分割より先でなければならない。そうしないと 12 時間の大陸間便が
- *  ギャップ規則で切られ、isFlight が一度も立たなくなる。 */
+ *  飛行区間の辺には分割閾値を適用しない。補間点数を増やして分割を避ける必要はない。 */
 export function buildTrips(points: TrackPoint[], opts?: BuildTripsOptions): BuildTripsResult {
   const gapSec = opts?.gapSec ?? DEFAULT_GAP_SEC
 
@@ -154,18 +168,27 @@ export function buildTrips(points: TrackPoint[], opts?: BuildTripsOptions): Buil
     return { trips: [], duplicateTimeFixed, flightPointsInserted }
   }
 
-  const segments: Array<[number, number]> = []
+  const segments: Array<{ start: number; end: number; isFlight: boolean }> = []
   let segStart = 0
+  let segIsFlight = false
+  let flightIndex = 0
   for (let i = 1; i < bridgedPoints.length; i++) {
+    // Ordered, non-overlapping edge ranges allow one sweep: O(points + flights),
+    // including imports with many ordinary gaps and inferred flights.
+    while (flightIndex < flightRanges.length && flightRanges[flightIndex]![1] < i) flightIndex++
+    const range = flightRanges[flightIndex]
+    const flightEdge = range !== undefined && range[0] < i && i <= range[1]
     const gap = bridgedPoints[i].t - bridgedPoints[i - 1].t
-    if (gap > gapSec) {
-      segments.push([segStart, i - 1])
+    if (gap > gapSec && !flightEdge) {
+      segments.push({ start: segStart, end: i - 1, isFlight: segIsFlight })
       segStart = i
+      segIsFlight = false
     }
+    if (flightEdge) segIsFlight = true
   }
-  segments.push([segStart, bridgedPoints.length - 1])
+  segments.push({ start: segStart, end: bridgedPoints.length - 1, isFlight: segIsFlight })
 
-  const trips: Trip[] = segments.map(([s, e]) => {
+  const trips: Trip[] = segments.map(({ start: s, end: e, isFlight }) => {
     const count = e - s + 1
     const coords = new Float64Array(count * 2)
     const times = new Int32Array(count)
@@ -176,7 +199,6 @@ export function buildTrips(points: TrackPoint[], opts?: BuildTripsOptions): Buil
       times[k] = p.t
     }
 
-    const isFlight = flightRanges.some(([fs, fe]) => s <= fe && e >= fs)
     const mode: TravelMode = isFlight ? 'FLYING' : 'UNKNOWN'
 
     const trip: Trip = {
