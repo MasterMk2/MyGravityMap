@@ -18,6 +18,7 @@
 import type { Dataset, TimeWindow, Trip, Visit } from '../core/types'
 import { haversineMeters, localDayKey } from '../core/geo'
 import { createTzLookup, type TzLookup } from '../core/timezone'
+import { normalizeYearlyCells, type GravityNormalization } from './normalization'
 
 export type GravitySource = 'days' | 'track' | 'visit'
 
@@ -30,7 +31,7 @@ export interface WeightedPoints {
   /** 重みの合計（unit の単位。日数なら延べ日数） */
   total: number
   /** 'seconds': 居た秒数 / 'days': 居た日数 */
-  unit: 'seconds' | 'days'
+  unit: 'seconds' | 'days' | 'percentile'
 }
 
 const EMPTY: WeightedPoints = {
@@ -225,6 +226,7 @@ export function aggregateToCells(points: WeightedPoints, cellMeters: number): We
     const lon = points.positions[i * 2]!
     const lat = points.positions[i * 2 + 1]!
     const w = points.weights[i]!
+    if (!Number.isFinite(w) || w <= 0 || !Number.isFinite(lon) || !Number.isFinite(lat)) continue
     const key = cellKey(lat, lon, cellMeters)
     const cell = cells.get(key)
     if (cell) {
@@ -355,7 +357,7 @@ export function dayWeights(
   return { positions, weights, count: cells.size, total, unit: 'days' }
 }
 
-export function buildWeightedPoints(
+function rawWeightedPoints(
   dataset: Dataset | null,
   trips: Trip[],
   window: TimeWindow,
@@ -369,4 +371,31 @@ export function buildWeightedPoints(
     return dayWeights(trips, dataset.visits, window, createTzLookup(dataset.tzChanges), cellMeters)
   }
   return trackWeights(trips, window)
+}
+
+
+/** Normalize independently within each UTC calendar year intersecting the selection.
+ * Raw mode is unchanged. Missing source years are excluded by normalizeYearlyCells.
+ */
+export function buildWeightedPoints(
+  dataset: Dataset | null, trips: Trip[], window: TimeWindow, source: GravitySource,
+  cellMeters: number, normalization: GravityNormalization = 'raw',
+): WeightedPoints {
+  if (!dataset || normalization === 'raw') return rawWeightedPoints(dataset, trips, window, source, cellMeters)
+  if (!(cellMeters > 0) || !Number.isFinite(cellMeters)) throw new RangeError('粒度は正の有限数で指定してください')
+  const start = Math.max(window.start, dataset.tMin)
+  const end = Math.min(window.end, dataset.tMax)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return { ...EMPTY, unit: 'percentile' }
+  const from = new Date(start * 1000).getUTCFullYear()
+  const to = new Date(end * 1000).getUTCFullYear()
+  const years: WeightedPoints[] = []
+  for (let year = from; year <= to; year++) {
+    const yearStart = Date.UTC(year, 0, 1) / 1000
+    const yearEnd = Date.UTC(year + 1, 0, 1) / 1000
+    // Track samples are integer seconds and existing raw builders include their right endpoint.
+    // Keep Jan 1 samples out of the preceding year without losing the selected endpoint.
+    const selection = { start: Math.max(start, yearStart), end: Math.min(end, yearEnd - 0.001) }
+    if (selection.end >= selection.start) years.push(rawWeightedPoints(dataset, trips, selection, source, cellMeters))
+  }
+  return normalizeYearlyCells(years, cellMeters)
 }

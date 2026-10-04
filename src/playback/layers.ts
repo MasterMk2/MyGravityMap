@@ -4,7 +4,7 @@ import { TripsLayer } from '@deck.gl/geo-layers'
 import { PathStyleExtension } from '@deck.gl/extensions'
 import type { PathStyleExtensionProps } from '@deck.gl/extensions'
 import type { PlaybackSettings, Trip, Visit } from '../core/types'
-import type { Cursor } from './position'
+import { snapToSample, type Cursor } from './position'
 
 /**
  * 長距離移動（飛行機など）は記録が飛んでいる区間を大圏コースで補って繋いである。
@@ -60,7 +60,8 @@ function partialPath(trip: Trip, rel: Float32Array, currentRel: number): number[
 }
 
 export function buildPlaybackLayers(input: PlaybackLayerInput): Layer[] {
-  const { trips, rel, currentRel, settings, colors, activeVisit } = input
+  const { trips, rel, settings, colors, activeVisit } = input
+  const currentRel = settings.interpolation === 'none' ? snapToSample(rel, input.currentRel) : input.currentRel
   const layers: Layer[] = []
   const alpha = Math.round(Math.max(0, Math.min(1, settings.opacity)) * 255)
   const showGradient = settings.trail === 'gradient' || settings.trail === 'both'

@@ -42,11 +42,11 @@ interface Ingested {
 }
 
 self.onmessage = async (
-  ev: MessageEvent<{ source: ParseSource; fileHash: string }>,
+  ev: MessageEvent<{ source: ParseSource; fileHash: string; tripGapSec?: number }>,
 ) => {
-  const { source, fileHash } = ev.data
+  const { source, fileHash, tripGapSec } = ev.data
   try {
-    const dataset = await parseSource(source, fileHash)
+    const dataset = await parseSource(source, fileHash, tripGapSec)
     post({ type: 'done', dataset })
   } catch (err) {
     post({ type: 'error', message: err instanceof Error ? err.message : String(err) })
@@ -69,7 +69,7 @@ async function openStream(
   return { stream: res.body, size: len, name: source.name }
 }
 
-async function parseSource(source: ParseSource, fileHash: string): Promise<Dataset> {
+async function parseSource(source: ParseSource, fileHash: string, tripGapSec?: number): Promise<Dataset> {
   const collector = createSegmentCollector()
   const { fileName, rawSignalsDiscarded, progressTotal } =
     source.kind === 'demo' ? ingestDemo(source.seed, collector) : await ingestStream(source, collector)
@@ -87,6 +87,7 @@ async function parseSource(source: ParseSource, fileHash: string): Promise<Datas
 
   return buildDataset({
     collected,
+    tripGapSec,
     fileHash,
     fileName,
     rawSignalsDiscarded,

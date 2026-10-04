@@ -2,9 +2,12 @@ import type { Layer } from '@deck.gl/core'
 import { HeatmapLayer, HexagonLayer } from '@deck.gl/aggregation-layers'
 import { aggregateToCells, type GravitySource, type WeightedPoints } from './weights'
 
+import type { GravityNormalization } from './normalization'
+
 export type GravityMode = 'off' | 'heat' | 'hex' | 'both'
 
 export interface GravitySettings {
+  normalization?: GravityNormalization
   mode: GravityMode
   source: GravitySource
   /** 六角柱の 1 マスの半径（メートル） */
@@ -17,6 +20,7 @@ export interface GravitySettings {
 }
 
 export const DEFAULT_GRAVITY: GravitySettings = {
+  normalization: 'year-percentile',
   mode: 'off',
   // 設計どおり頻度モード（日数）を既定にする。記録の濃さが年で違っても比べられるため
   source: 'days',
@@ -34,6 +38,7 @@ export function isGravitySettings(v: unknown): v is GravitySettings {
   const g = v as Record<string, unknown>
   const num = (x: unknown) => typeof x === 'number' && Number.isFinite(x)
   return (
+    (g.normalization === undefined || ['raw', 'year-percentile'].includes(g.normalization as string)) &&
     ['off', 'heat', 'hex', 'both'].includes(g.mode as string) &&
     ['days', 'track', 'visit'].includes(g.source as string) &&
     num(g.radiusMeters) &&
@@ -157,7 +162,7 @@ const heatCache = new WeakMap<Float32Array, Map<number, WeightedPoints>>()
  * 1 日（=1/60）がほぼ 0 に潰れて、一度きりの場所が消えてしまう。
  */
 function toLog(value: number, contrast: number, unit: WeightedPoints['unit']): number {
-  return Math.pow(Math.log1p(unit === 'days' ? value : value / 60), contrast)
+  return Math.pow(Math.log1p(unit === 'seconds' ? value / 60 : value), contrast)
 }
 
 /** ヒートマップ用に格子へまとめた点（格子サイズごとにキャッシュ） */

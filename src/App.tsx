@@ -165,10 +165,10 @@ export function App() {
     setGravity((g) => ({ ...g, ...patch }))
 
   // 日数モードはマスごとに日を数えるので粒度が変わると数え直す。他のモードでは粒度に依存しない
-  const dayCellMeters = gravity.source === 'days' ? gravity.radiusMeters : 0
+  const dayCellMeters = gravity.radiusMeters
   const gravityPoints = useMemo(
-    () => buildWeightedPoints(dataset, pb.trips, pb.selection, gravity.source, dayCellMeters),
-    [dataset, pb.trips, pb.selection, gravity.source, dayCellMeters],
+    () => buildWeightedPoints(dataset, pb.trips, pb.selection, gravity.source, dayCellMeters, gravity.normalization ?? 'raw'),
+    [dataset, pb.trips, pb.selection, gravity.source, dayCellMeters, gravity.normalization],
   )
 
   // 選択中の期間を「滞在」ソースで描けるか（Google の訪問データは 2024 年秋以降のみ）。

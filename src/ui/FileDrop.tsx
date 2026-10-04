@@ -4,16 +4,19 @@ import { HowToExport, LicenseLinks, LicenseText, PrivacyNote } from './About'
 import { DataManager } from './DataManager'
 
 export function FileDrop() {
-  const { status, phase, progress, error, loadFile, loadDemo, reset } = useAppStore()
+  const { status, phase, progress, error, loadFile, loadDemo, reset, tripGapSec, setTripGapSec } = useAppStore()
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
+
+  const [gapMinutes, setGapMinutes] = useState(String(tripGapSec / 60))
+  const gapValid = /^\d+$/.test(gapMinutes) && Number(gapMinutes) >= 1 && Number(gapMinutes) <= 1440
 
   const onFiles = useCallback(
     (files: FileList | null) => {
       const file = files?.[0]
-      if (file) void loadFile(file)
+      if (file && gapValid) void loadFile(file)
     },
-    [loadFile],
+    [loadFile, gapValid],
   )
 
   const busy = status === 'hashing' || status === 'parsing'
@@ -42,7 +45,19 @@ export function FileDrop() {
 
         {!busy && (
           <>
-            <button onClick={() => inputRef.current?.click()}>ファイルを選ぶ</button>
+            <label style={{ display: 'block', marginBottom: 12 }}>
+              トリップ分割閾値（分）
+              <input aria-label="トリップ分割閾値（分）" type="number" min={1} max={1440} step={1}
+                value={gapMinutes} aria-invalid={!gapValid}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setGapMinutes(value)
+                  if (/^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 1440) setTripGapSec(Number(value) * 60)
+                }} />
+            </label>
+            <p>既定は30分。読み込み時に適用されます。変更後は元のJSONを再度選んでください（元ファイルは変更しません）。</p>
+            {!gapValid && <p role="alert">1〜1440の整数を入力してください</p>}
+            <button disabled={!gapValid} onClick={() => inputRef.current?.click()}>ファイルを選ぶ</button>
             <input
               ref={inputRef}
               type="file"
@@ -52,7 +67,7 @@ export function FileDrop() {
             />
             {/* 自分のエクスポートが無い人向け。実在の人の記録と誤解されないよう、架空であることを並べて書く */}
             <div style={{ marginTop: 14 }}>
-              <button onClick={() => void loadDemo()}>デモデータで試す</button>
+              <button disabled={!gapValid} onClick={() => void loadDemo()}>デモデータで試す</button>
               <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--muted)' }}>
                 架空の人物の約 7 年分。実在の人のデータではありません
               </p>
