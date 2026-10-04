@@ -11,8 +11,10 @@ import { assignModes, buildTrips } from './trips'
 import { aggregatePlaces, computeCoverage } from './aggregate'
 import { deriveVisitsFromTrips } from './visits'
 import { createTzLookup } from './timezone'
+import { DEFAULT_TRIP_GAP_SEC, validateTripGapSec } from './importSettings'
 
 export interface BuildDatasetInput {
+  tripGapSec?: number
   collected: CollectedSegments
   fileHash: string
   fileName: string
@@ -30,7 +32,8 @@ export function buildDataset(input: BuildDatasetInput): Dataset {
 
   onPhase?.('軌跡を組み立て中')
 
-  const built = buildTrips(points)
+  const gapSec = validateTripGapSec(input.tripGapSec ?? DEFAULT_TRIP_GAP_SEC)
+  const built = buildTrips(points, { gapSec, flightMaxSubGapSec: Math.min(600, gapSec) })
   const trips = assignModes(built.trips, moves)
 
   const stats: ParseStats = {

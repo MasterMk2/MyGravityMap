@@ -201,6 +201,8 @@ export interface TimeMap {
 
 /** 再生の設定 */
 export interface PlaybackSettings {
+  /** 未指定の旧設定も線形として扱う */
+  interpolation?: 'linear' | 'none'
   /** 実時間倍率（'motion' モードでは相対倍率 ×0.5〜×4 として使う） */
   speed: number
   /** 再生ペースの基準。'time': 実時間の定数倍率。'motion': 画面上の GPS 移動速度を一定に保つ */

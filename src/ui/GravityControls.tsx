@@ -1,4 +1,5 @@
 import type { GravityMode, GravitySettings } from '../gravity/layers'
+import type { GravityNormalization } from '../gravity/normalization'
 import type { GravitySource, WeightedPoints } from '../gravity/weights'
 
 interface Props {
@@ -95,6 +96,18 @@ export function GravityControls({ settings, onChange, points, visitAvailable }: 
             </div>
           </div>
 
+          <label className="gravity__row">
+            年内正規化
+            <select aria-label="年内正規化" value={settings.normalization ?? 'raw'}
+              onChange={(e) => onChange({ normalization: e.target.value as GravityNormalization })}>
+              <option value="year-percentile">年ごとの順位（パーセンタイル）</option>
+              <option value="raw">生の値</option>
+            </select>
+          </label>
+          {settings.normalization === 'year-percentile' && <p className="gravity__note">
+            UTCの各年・選択期間内の正のマスを順位化し、データがある年の平均を表示。同値は同順位、データがない年は除外します。
+          </p>}
+
           {/* 粒度は六角柱の 1 マスの大きさであり、ヒートマップの格子の大きさでもある */}
           <div className="gravity__row">
             <span>粒度</span>
@@ -146,7 +159,9 @@ export function GravityControls({ settings, onChange, points, visitAvailable }: 
           </label>
 
           <p className="gravity__stat">
-            {points.unit === 'days'
+            {points.unit === 'percentile'
+              ? `${nf.format(points.count)} マス / 年内順位の平均（0〜1）`
+              : points.unit === 'days'
               ? `${nf.format(points.count)} マス / 延べ ${nf.format(points.total)} 日`
               : `${nf.format(points.count)} 点 / 合計 ${hours(points.total)}`}
             {settings.source === 'days' && (

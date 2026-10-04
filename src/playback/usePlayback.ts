@@ -35,6 +35,7 @@ export function defaultTrailFor(windowSec: number): number {
 }
 
 const DEFAULT_SETTINGS: PlaybackSettings = {
+  interpolation: 'linear',
   speed: 86400,
   pace: 'time',
   // 残る実線＋先頭の尾。加算合成にすると通った回数の多い道が濃く光る
@@ -107,7 +108,7 @@ export function usePlayback(dataset: Dataset | null) {
   const currentRel = currentTime - selection.start
   const progress = timeMap.totalSec > 0 ? pos / timeMap.totalSec : 0
 
-  const cursor = useMemo(() => positionAt(trips, rel, currentRel), [trips, rel, currentRel])
+  const cursor = useMemo(() => positionAt(trips, rel, currentRel, settings.interpolation), [trips, rel, currentRel, settings.interpolation])
 
   const activeVisit = useMemo(
     () => (dataset ? activeVisitAt(dataset.visits, currentTime) : undefined),

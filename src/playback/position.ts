@@ -19,6 +19,7 @@ export function positionAt(
   trips: Trip[],
   rel: Float32Array[],
   currentRel: number,
+  interpolation: 'linear' | 'none' = 'linear',
 ): Cursor | undefined {
   if (trips.length === 0) return undefined
 
@@ -51,7 +52,7 @@ export function positionAt(
   const t0 = times[a] ?? 0
   const t1 = times[a + 1] ?? t0
   const span = t1 - t0
-  const f = span > 0 ? (currentRel - t0) / span : 0
+  const f = interpolation === 'linear' && span > 0 ? (currentRel - t0) / span : 0
   const lon0 = trip.coords[a * 2] ?? 0
   const lat0 = trip.coords[a * 2 + 1] ?? 0
   const lon1 = trip.coords[(a + 1) * 2] ?? lon0
@@ -61,4 +62,28 @@ export function positionAt(
     lat: lat0 + (lat1 - lat0) * f,
     moving: true,
   }
+}
+
+
+/** Latest recorded/ingested sample, used by stepped trails as well as their cursor. */
+export function snapToSample(rel: Float32Array[], currentRel: number): number {
+  let lo = 0
+  let hi = rel.length - 1
+  if (hi < 0 || (rel[0]?.[0] ?? Infinity) > currentRel) return currentRel
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if ((rel[mid]?.[0] ?? Infinity) <= currentRel) lo = mid
+    else hi = mid - 1
+  }
+  const times = rel[lo]!
+  // There is no head segment to interpolate in a gap; let old trails keep fading.
+  if (currentRel >= (times[times.length - 1] ?? -Infinity)) return currentRel
+  let a = 0
+  let b = times.length - 1
+  while (a < b) {
+    const mid = (a + b + 1) >> 1
+    if (times[mid]! <= currentRel) a = mid
+    else b = mid - 1
+  }
+  return times[a] ?? currentRel
 }

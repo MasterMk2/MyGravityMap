@@ -415,6 +415,14 @@ export function PlaybackBar(props: PlaybackBarProps): JSX.Element {
 
       {showSettings && (
       <div className="playbackbar__row playbackbar__row--settings">
+        <label className="playbackbar__group">
+          補間方式
+          <select aria-label="補間方式" value={settings.interpolation ?? 'linear'}
+            onChange={(e) => onSettingsChange({ interpolation: e.target.value as 'linear' | 'none' })}>
+            <option value="linear">線形（既定）</option>
+            <option value="none">補間なし（点ごと）</option>
+          </select>
+        </label>
         <div className="playbackbar__group">
           <span className="playbackbar__label">移動痕</span>
           <div className="segmented" role="group" aria-label="移動痕の表現">

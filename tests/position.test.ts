@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { positionAt } from '../src/playback/position'
+import { positionAt, snapToSample } from '../src/playback/position'
 import type { Trip } from '../src/core/types'
 
 function trip(coords: number[], times: number[]): Trip {
@@ -54,4 +54,30 @@ describe('positionAt', () => {
     const p = positionAt(solo, soloRel, 10)
     expect(p).toEqual({ lon: 135.0, lat: 34.0, moving: false })
   })
+})
+
+
+describe('stepped playback', () => {
+  const trips = [trip([10, 30, 12, 32, 14, 34], [0, 10, 20]), trip([20, 40], [100])]
+  const rel = [new Float32Array([0, 10, 20]), new Float32Array([100])]
+  it('holds the preceding point, advances exactly at samples and supports reverse scrubbing', () => {
+    expect(positionAt(trips, rel, 9, 'none')?.lon).toBe(10)
+    expect(positionAt(trips, rel, 10, 'none')?.lon).toBe(12)
+    expect(positionAt(trips, rel, 19, 'none')?.lon).toBe(12)
+    expect(positionAt(trips, rel, 4, 'none')?.lon).toBe(10)
+    expect(positionAt(trips, rel, 40, 'none')?.lon).toBe(14)
+    expect(positionAt(trips, rel, 100, 'none')?.lon).toBe(20)
+    expect(positionAt(trips, rel, -1, 'none')).toBeUndefined()
+    expect(positionAt(trips, rel, 5)?.lon).toBe(11)
+  })
+})
+
+
+it('snaps trails inside a trip but keeps the real clock in gaps', () => {
+  const rel = [Float32Array.from([0, 10, 20]), Float32Array.from([100, 200])]
+  expect(snapToSample(rel, 15)).toBe(10)
+  expect(snapToSample(rel, 50)).toBe(50)
+  expect(snapToSample(rel, 150)).toBe(100)
+  expect(snapToSample(rel, -1)).toBe(-1)
+  expect(snapToSample([], 1)).toBe(1)
 })
