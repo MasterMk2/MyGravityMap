@@ -33,7 +33,7 @@ export function buildDataset(input: BuildDatasetInput): Dataset {
   onPhase?.('軌跡を組み立て中')
 
   const gapSec = validateTripGapSec(input.tripGapSec ?? DEFAULT_TRIP_GAP_SEC)
-  const built = buildTrips(points, { gapSec, flightMaxSubGapSec: Math.min(600, gapSec) })
+  const built = buildTrips(points, { gapSec })
   const trips = assignModes(built.trips, moves)
 
   const stats: ParseStats = {
