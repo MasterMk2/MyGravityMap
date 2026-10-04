@@ -3,6 +3,7 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
+  useState,
   type ReactNode,
 } from 'react'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -20,10 +21,10 @@ import type { BasemapId } from './basemaps'
 import { buildBuildingsLayer } from './buildings'
 import { ensureMaplibreWorker } from './maplibreWorker'
 import { startRecording, type Recording } from './recorder'
+import { supportsWebGL2, type MapSession, type MapStatus } from './mapSession'
+import { mountMap } from './mapLifecycle'
+import { MapStatusNotice } from './MapStatusNotice'
 import './MapCanvas.css'
-
-// 地図を作る前に Worker の場所を教えておく（詳細は maplibreWorker.ts）
-ensureMaplibreWorker()
 
 export interface MapCanvasViewState {
   longitude: number
@@ -42,6 +43,8 @@ export interface MapCanvasInitialViewState {
 export interface MapCanvasProps {
   /** deck.gl layers. re-rendered (via overlay.setProps) whenever this changes */
   layers: Layer[]
+  /** Pauses rendering-dependent app activity when an attempt fails. */
+  onAvailabilityChange?: (available: boolean) => void
   /** default 'dark' */
   basemap?: BasemapId
   initialViewState?: MapCanvasInitialViewState
@@ -202,7 +205,14 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
       children,
       mapFilter,
       onUserPan,
+      onAvailabilityChange,
     } = props
+
+    const [status, setStatus] = useState<MapStatus>({ phase: 'loading' })
+    const [attempt, setAttempt] = useState(0)
+    const sessionRef = useRef<MapSession | null>(null)
+    const availabilityRef = useRef(onAvailabilityChange)
+    availabilityRef.current = onAvailabilityChange
 
     const containerRef = useRef<HTMLDivElement | null>(null)
     const mapRef = useRef<MapLibreMap | null>(null)
@@ -238,7 +248,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
           const opts: FlyToOptions = { center: [longitude, latitude] }
           if (zoom !== undefined) opts.zoom = zoom
           if (durationMs !== undefined) opts.duration = durationMs
-          map.flyTo(opts)
+          sessionRef.current?.run(() => map.flyTo(opts))
         },
         fitBounds(bounds, padding, maxZoom) {
           const map = mapRef.current
@@ -246,38 +256,38 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
           const opts: FitBoundsOptions = {}
           if (padding !== undefined) opts.padding = padding
           if (maxZoom !== undefined) opts.maxZoom = maxZoom
-          map.fitBounds(bounds, opts)
+          sessionRef.current?.run(() => map.fitBounds(bounds, opts))
         },
         setCenter(longitude, latitude) {
           // jumpTo はアニメーションを伴わない。追従モードで毎フレーム呼ぶので、
           // flyTo/easeTo だと動きが積み重なって震える。
-          mapRef.current?.jumpTo({ center: [longitude, latitude] })
+          sessionRef.current?.run(() => mapRef.current?.jumpTo({ center: [longitude, latitude] }))
         },
         setPitch(degrees, durationMs) {
-          mapRef.current?.easeTo({ pitch: degrees, duration: durationMs ?? 600 })
+          sessionRef.current?.run(() => mapRef.current?.easeTo({ pitch: degrees, duration: durationMs ?? 600 }))
         },
         getPitch() {
-          return mapRef.current?.getPitch() ?? 0
+          return sessionRef.current?.run(() => mapRef.current?.getPitch()) ?? 0
         },
         exportPng() {
           const map = mapRef.current
-          if (!map) return Promise.resolve(null)
-          return composePng(map, overlayRef.current, mapFilterRef.current, basemapRef.current)
+          if (!map || !sessionRef.current?.ready) return Promise.resolve(null)
+          return sessionRef.current?.run(() => composePng(map, overlayRef.current, mapFilterRef.current, basemapRef.current)) ?? Promise.resolve(null)
         },
         startRecording(label) {
           const map = mapRef.current
-          if (!map) return null
-          return startRecording(map, overlayRef.current, {
+          if (!map || !sessionRef.current?.ready) return null
+          return sessionRef.current?.run(() => startRecording(map, overlayRef.current, {
             mapFilter: mapFilterRef.current,
             attribution: attributionOf(basemapRef.current),
             label,
-          })
+          })) ?? null
         },
       }),
       [],
     )
 
-    // Create the map + deck.gl overlay exactly once. Cleanup fully tears
+    // Create map + deck.gl once per attempt. Cleanup fully tears
     // down the map so this survives React 19 StrictMode's dev-mode
     // mount -> cleanup -> mount without leaking a map instance or throwing.
     useEffect(() => {
@@ -301,78 +311,60 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
       if (initial?.pitch !== undefined) mapOptions.pitch = initial.pitch
       if (initial?.bearing !== undefined) mapOptions.bearing = initial.bearing
 
-      const map = new MapLibreMap(mapOptions)
-      mapRef.current = map
-      // 開発時のみ: コンソールから地図の状態を確認できるようにする
-      if (import.meta.env.DEV) {
-        ;(window as unknown as { __map: MapLibreMap }).__map = map
-        map.on('error', (e) => {
-          ;((window as unknown as { __mapErrs?: string[] }).__mapErrs ??= []).push(
-            String((e as unknown as { error?: Error }).error?.message ?? e),
-          )
-        })
-      }
-      appliedBasemapRef.current = startBasemap
-
-      map.addControl(new NavigationControl(), 'top-right')
-      map.addControl(new ScaleControl(), 'bottom-left')
-
-      const overlay = new MapboxOverlay({
-        interleaved: false,
-        layers: layersRef.current,
+      const session = mountMap({
+        supported: supportsWebGL2,
+        createMap: () => {
+          ensureMaplibreWorker()
+          // Each attempt owns a disposable host, so even a partial constructor's
+          // DOM listeners cannot remain attached to the reusable React container.
+          const surface = document.createElement('div')
+          Object.assign(surface.style, { position: 'absolute', inset: '0' })
+          container.append(surface)
+          return new MapLibreMap({ ...mapOptions, container: surface })
+        },
+        createNavigation: () => new NavigationControl(),
+        createScale: () => new ScaleControl(),
+        createOverlay: (onError) => new MapboxOverlay({ interleaved: false, layers: layersRef.current, onError }),
+        onStatus: (next) => {
+          setStatus(next)
+          availabilityRef.current?.(next.phase === 'ready')
+        },
+        onMap: (map) => {
+          mapRef.current = map
+          appliedBasemapRef.current = map ? startBasemap : null
+          if (!map) attributionRef.current = null
+          if (import.meta.env.DEV) {
+            const debug = window as unknown as { __map?: MapLibreMap }
+            if (map) debug.__map = map
+            else delete debug.__map
+          }
+        },
+        onOverlay: (overlay) => { overlayRef.current = overlay },
+        clearContainer: () => {
+          container.replaceChildren()
+          container.classList.remove('maplibregl-map')
+        },
+        syncAttribution: (map) => syncAttribution(map, startBasemap, attributionRef),
+        addBuildings: add3dBuildings,
+        onMove: (map) => {
+          const center = map.getCenter()
+          onViewStateChangeRef.current?.({ longitude: center.lng, latitude: center.lat, zoom: map.getZoom() })
+        },
+        onUserPan: () => onUserPanRef.current?.(),
       })
-      overlayRef.current = overlay
-      map.addControl(overlay)
-
-      syncAttribution(map, startBasemap, attributionRef)
-
-      // Defensive: some maplibre/deck.gl version combos have dropped a
-      // control across setStyle. Re-add the deck.gl overlay if it's
-      // missing once the new style has finished loading.
-      const handleStyleLoad = () => {
-        const currentOverlay = overlayRef.current
-        if (currentOverlay && !map.hasControl(currentOverlay)) {
-          map.addControl(currentOverlay)
-        }
-        add3dBuildings(map)
-      }
-      map.on('style.load', handleStyleLoad)
-
-      const handleMove = () => {
-        const center = map.getCenter()
-        onViewStateChangeRef.current?.({
-          longitude: center.lng,
-          latitude: center.lat,
-          zoom: map.getZoom(),
-        })
-      }
-      map.on('move', handleMove)
-
-      // originalEvent があるものだけが利用者操作。setCenter などのプログラム移動では付かない。
-      const handleUserPan = (e: { originalEvent?: unknown }) => {
-        if (e.originalEvent) onUserPanRef.current?.()
-      }
-      map.on('dragstart', handleUserPan)
-      map.on('zoomstart', handleUserPan)
-
+      sessionRef.current = session
       return () => {
-        map.off('style.load', handleStyleLoad)
-        map.off('move', handleMove)
-        map.off('dragstart', handleUserPan)
-        map.off('zoomstart', handleUserPan)
-        map.remove()
-        mapRef.current = null
-        overlayRef.current = null
-        attributionRef.current = null
-        appliedBasemapRef.current = null
+        session.dispose()
+        if (sessionRef.current === session) sessionRef.current = null
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once; latest values are read via refs
-    }, [])
+      // Retry recreates rendering resources only. Latest app data stays in refs/store.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [attempt])
 
     // Push new deck.gl layers into the existing overlay without recreating
     // the map or the overlay.
     useEffect(() => {
-      overlayRef.current?.setProps({ layers })
+      sessionRef.current?.run(() => overlayRef.current?.setProps({ layers }))
     }, [layers])
 
     // Swap the maplibre style in place when `basemap` changes; never
@@ -382,9 +374,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
       if (!map) return
       if (appliedBasemapRef.current === basemap) return
 
-      map.setStyle(BASEMAPS[basemap].style)
-      syncAttribution(map, basemap, attributionRef)
-      appliedBasemapRef.current = basemap
+      sessionRef.current?.run(() => {
+        map.setStyle(BASEMAPS[basemap].style)
+        syncAttribution(map, basemap, attributionRef)
+        appliedBasemapRef.current = basemap
+      })
     }, [basemap])
 
     return (
@@ -394,7 +388,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(
           className="mgm-map-canvas__map"
           style={mapFilter ? ({ '--map-filter': mapFilter } as React.CSSProperties) : undefined}
         />
-        <div className="mgm-map-canvas__overlay">{children}</div>
+        <div className="mgm-map-canvas__overlay" hidden={status.phase !== 'ready'}>{children}</div>
+        <MapStatusNotice status={status} onRetry={() => setAttempt((value) => value + 1)} />
       </div>
     )
   },

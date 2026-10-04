@@ -52,6 +52,7 @@ function boundsOfDay(trips: Trip[], start: number, end: number): [number, number
 
 export function App() {
   const { status, dataset } = useAppStore()
+  const [mapAvailable, setMapAvailable] = useState(false)
   // 見た目の設定は端末に保存して、次に開いたときも同じにする
   const [basemap, setBasemap] = usePersistentState<BasemapId>('basemap', 'dark', isBasemap)
   /** 地図を沈める量。軌跡を浮かせるための既定値 */
@@ -118,6 +119,7 @@ export function App() {
   const { playing, setPlaying, stepDays } = pb
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!mapAvailable) return
       if (e.ctrlKey || e.metaKey || e.altKey) return
       // window や document に直接届いたイベントでは target が要素ではない
       const el = e.target instanceof HTMLElement ? e.target : null
@@ -142,7 +144,7 @@ export function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [showPanel, showBar, playing, setPlaying, stepDays])
+  }, [showPanel, showBar, playing, setPlaying, stepDays, mapAvailable])
 
   const [gravity, setGravity] = usePersistentState<GravitySettings>(
     'gravity',
@@ -295,13 +297,13 @@ export function App() {
   const [recording, setRecording] = useState(false)
   const clockRef = useRef('')
   clockRef.current = formatClock(pb.currentTime, pb.tzOffsetMin)
-  const stopRecording = useCallback(async () => {
+  const stopRecording = useCallback(async (save = true) => {
     const rec = recordingRef.current
     if (!rec) return
     recordingRef.current = null
     setRecording(false)
     const blob = await rec.stop()
-    if (blob) downloadBlob(`mygravitymap-${Date.now().toString(36)}.${rec.extension}`, blob)
+    if (blob && save) downloadBlob(`mygravitymap-${Date.now().toString(36)}.${rec.extension}`, blob)
   }, [])
   const toggleRecording = useCallback(() => {
     if (recordingRef.current) {
@@ -333,6 +335,14 @@ export function App() {
       <MapCanvas
         ref={mapRef}
         layers={layers}
+        onAvailabilityChange={(available) => {
+          setMapAvailable(available)
+          if (!available) {
+            setPlaying(false)
+            // A failed render must not silently export a recording as successful.
+            void stopRecording(false)
+          }
+        }}
         basemap={basemap}
         mapFilter={mapFilter}
         onViewStateChange={onViewStateChange}
