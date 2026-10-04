@@ -33,3 +33,29 @@
 .mgm-map-canvas__overlay > * {
   pointer-events: auto;
 }
+
+.mgm-map-canvas__overlay[hidden] { display: none; }
+
+.mgm-map-status {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 24px;
+  background: #0b0d12;
+  color: #f0f3f8;
+}
+
+.mgm-map-status__card {
+  max-width: 620px;
+  padding: 24px;
+  border: 1px solid #69758a;
+  border-radius: 12px;
+  background: #151c28;
+  line-height: 1.7;
+}
+
+.mgm-map-status__card h1 { margin-top: 0; font-size: 1.4rem; }
+.mgm-map-status__card button { margin-top: 8px; }
