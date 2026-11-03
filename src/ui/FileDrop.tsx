@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
+import { canFingerprintFiles, INSECURE_CONTEXT_MESSAGE } from '../store/db'
 import { useAppStore } from '../store/useAppStore'
 import { HowToExport, LicenseLinks, LicenseText, PrivacyNote } from './About'
 import { DataManager } from './DataManager'
@@ -10,13 +11,15 @@ export function FileDrop() {
 
   const [gapMinutes, setGapMinutes] = useState(String(tripGapSec / 60))
   const gapValid = /^\d+$/.test(gapMinutes) && Number(gapMinutes) >= 1 && Number(gapMinutes) <= 1440
+  // http: で配信されたページでは自分のファイルを読み込めない。選ぶ前に案内して、選択もドロップも受け付けない
+  const fileImportAvailable = canFingerprintFiles()
 
   const onFiles = useCallback(
     (files: FileList | null) => {
       const file = files?.[0]
-      if (file && gapValid) void loadFile(file)
+      if (file && gapValid && fileImportAvailable) void loadFile(file)
     },
-    [loadFile, gapValid],
+    [loadFile, gapValid, fileImportAvailable],
   )
 
   const busy = status === 'hashing' || status === 'parsing'
@@ -57,7 +60,13 @@ export function FileDrop() {
             </label>
             <p>既定は30分。読み込み時に適用されます。変更後は元のJSONを再度選んでください（元ファイルは変更しません）。</p>
             {!gapValid && <p role="alert">1〜1440の整数を入力してください</p>}
-            <button disabled={!gapValid} onClick={() => inputRef.current?.click()}>ファイルを選ぶ</button>
+            {!fileImportAvailable && (
+              <div className="filedrop__error" role="alert">
+                <p>{INSECURE_CONTEXT_MESSAGE}</p>
+                <p>デモデータは、このままでも試せます。</p>
+              </div>
+            )}
+            <button disabled={!gapValid || !fileImportAvailable} onClick={() => inputRef.current?.click()}>ファイルを選ぶ</button>
             <input
               ref={inputRef}
               type="file"
