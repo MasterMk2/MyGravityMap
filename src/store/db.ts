@@ -181,15 +181,34 @@ const FINGERPRINT_CHUNK_BYTES = 256 * 1024
 const FINGERPRINT_SMALL_FILE_THRESHOLD = 512 * 1024
 
 /**
+ * ファイルの照合に使う crypto.subtle は、ブラウザーが安全な接続（https: や localhost）と
+ * みなしたページでしか使えない。http: で配信されたページでは crypto はあっても subtle が無い。
+ * そのときに利用者へ見せる案内。JS の生のメッセージは見せない。
+ */
+export const INSECURE_CONTEXT_MESSAGE =
+  'このページは安全な接続（HTTPS）で開かれていないため、ブラウザーの機能の制限でファイルを読み込めません。' +
+  'https:// で始まるアドレスで開き直してください（手元で動かす場合は http://localhost で開いてください）。'
+
+export class InsecureContextError extends Error {
+  constructor() {
+    super(INSECURE_CONTEXT_MESSAGE)
+    this.name = 'InsecureContextError'
+  }
+}
+
+/** この環境で fileFingerprint が使えるか（＝自分のファイルを読み込めるか）。デモは影響を受けない */
+export function canFingerprintFiles(): boolean {
+  return typeof globalThis.crypto?.subtle?.digest === 'function'
+}
+
+/**
  * SHA-256 over: name, size, lastModified, the first 256KB and the last 256KB of the file.
  * 74MB のファイル全体は絶対にハッシュしない（読み込み時間が倍になる）。
  * 512KB 未満のファイルはファイル全体を一度だけ使う（先頭・末尾の二重カウントを避ける）。
  * 返り値は小文字16進文字列。
  */
 export async function fileFingerprint(file: File): Promise<string> {
-  if (typeof globalThis.crypto?.subtle?.digest !== 'function') {
-    throw new Error('crypto.subtle is not available in this environment')
-  }
+  if (!canFingerprintFiles()) throw new InsecureContextError()
 
   const header = `${file.name}|${file.size}|${file.lastModified}|`
   const headerBytes = new TextEncoder().encode(header)
